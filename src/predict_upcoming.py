@@ -4,9 +4,14 @@ import numpy as np
 from scipy.stats import poisson
 import datetime
 import os
+import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(PROJECT_ROOT, "data/db/foot_stats.db")
+
+# Permet d'importer le module Dixon-Coles
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from models.dixon_coles import load_params as load_dc_params, predict_lambdas as dc_predict
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MOTEUR DE STATISTIQUES AVANCÉES & LISSAGE
@@ -99,6 +104,7 @@ def get_h2h_modifier(conn, team_H, team_A):
 
 
 def dixon_coles_adjustment(score_matrix, lambda_H, lambda_A, rho=-0.06):
+    """Applique la correction Dixon-Coles τ aux cellules (0,0), (1,0), (0,1), (1,1)."""
     if score_matrix.shape[0] > 2 and score_matrix.shape[1] > 2:
         score_matrix[0, 0] *= (1 - lambda_H * lambda_A * rho)
         score_matrix[1, 0] *= (1 + lambda_A * rho)
@@ -108,10 +114,28 @@ def dixon_coles_adjustment(score_matrix, lambda_H, lambda_A, rho=-0.06):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MOTEUR DE PRÉDICTION MULTI-MARCHÉS
+# CALCUL DES LAMBDAS — Dixon-Coles si dispo, sinon fallback heuristique
 # ─────────────────────────────────────────────────────────────────────────────
+def compute_lambdas(team_H, team_A, conn, dash, hist_global_avg, elo_df,
+                    dc_team_params, dc_global, neutral=True):
+    """
+    Retourne (lambda_H, lambda_A, rho_to_use, method) où method ∈ {'DC', 'heuristic'}.
 
-def run_prediction_markets(team_H, team_A, conn, dash, hist_global_avg, elo_df):
+    En CDM 2026 on traite les matchs comme neutres par défaut (la plupart le sont).
+    Niveau 6 affinera l'avantage spécifique au pays hôte.
+    """
+    # 1) Tentative Dixon-Coles
+    if dc_team_params is not None and dc_global is not None:
+        gamma = dc_global.get("gamma", 1.3)
+        rho_dc = dc_global.get("rho", -0.06)
+        lam, mu = dc_predict(team_H, team_A, neutral, dc_team_params, gamma)
+        if lam is not None:
+            # Clip raisonnable pour stabilité numérique
+            lam = max(0.15, min(lam, 5.0))
+            mu  = max(0.15, min(mu,  5.0))
+            return lam, mu, rho_dc, "DC"
+
+    # 2) Fallback : ancienne heuristique ELO + current form + H2H
     hist_H_att, hist_H_def = get_historical_power(conn, team_H, hist_global_avg)
     hist_A_att, hist_A_def = get_historical_power(conn, team_A, hist_global_avg)
     h2h_bias_H, h2h_bias_A = get_h2h_modifier(conn, team_H, team_A)
@@ -134,21 +158,36 @@ def run_prediction_markets(team_H, team_A, conn, dash, hist_global_avg, elo_df):
 
     elo_H = elo_df.loc[team_H, 'elo_rating'] if team_H in elo_df.index else 1500
     elo_A = elo_df.loc[team_A, 'elo_rating'] if team_A in elo_df.index else 1500
-    elo_diff  = (elo_H - elo_A) / 400
+    elo_diff   = (elo_H - elo_A) / 400
     elo_H_mult = 1 + (elo_diff * 0.4)
     elo_A_mult = 1 - (elo_diff * 0.4)
 
-    lambda_H = hist_global_avg * final_H_att * final_A_def * elo_H_mult * h2h_bias_H * 1.05
-    lambda_A = hist_global_avg * final_A_att * final_H_def * elo_A_mult * h2h_bias_A
+    home_mult = 1.0 if neutral else 1.05
 
-    lambda_H = max(0.4, min(lambda_H, 3.5))
-    lambda_A = max(0.4, min(lambda_A, 3.5))
+    lam = hist_global_avg * final_H_att * final_A_def * elo_H_mult * h2h_bias_H * home_mult
+    mu  = hist_global_avg * final_A_att * final_H_def * elo_A_mult * h2h_bias_A
+
+    lam = max(0.4, min(lam, 3.5))
+    mu  = max(0.4, min(mu,  3.5))
+    return lam, mu, -0.06, "heuristic"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MOTEUR DE PRÉDICTION MULTI-MARCHÉS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_prediction_markets(team_H, team_A, conn, dash, hist_global_avg, elo_df,
+                           dc_team_params, dc_global):
+    lambda_H, lambda_A, rho_used, method = compute_lambdas(
+        team_H, team_A, conn, dash, hist_global_avg, elo_df,
+        dc_team_params, dc_global, neutral=True,
+    )
 
     max_goals = 6
     probs_H = poisson.pmf(np.arange(max_goals), lambda_H)
     probs_A = poisson.pmf(np.arange(max_goals), lambda_A)
     score_matrix = np.outer(probs_H, probs_A)
-    score_matrix = dixon_coles_adjustment(score_matrix, lambda_H, lambda_A)
+    score_matrix = dixon_coles_adjustment(score_matrix, lambda_H, lambda_A, rho=rho_used)
     score_matrix /= score_matrix.sum()
 
     p_H_win = np.sum(np.tril(score_matrix, -1))
@@ -185,7 +224,7 @@ def run_prediction_markets(team_H, team_A, conn, dash, hist_global_avg, elo_df):
     scores_list = [(f"{i}-{j}", score_matrix[i, j] * 100) for i in range(max_goals) for j in range(max_goals)]
     top_scores  = sorted(scores_list, key=lambda x: x[1], reverse=True)[:3]
 
-    return markets, top_scores, [lambda_H, lambda_A]
+    return markets, top_scores, [lambda_H, lambda_A], method
 
 
 def predict_today_matches():
@@ -203,8 +242,19 @@ def predict_today_matches():
 
     dash, hist_global_avg, elo_df = get_advanced_stats(conn)
 
+    # Chargement des paramètres Dixon-Coles (peut échouer si jamais le module n'a
+    # pas encore tourné — on tombe alors en heuristique pure).
+    try:
+        dc_team_params, dc_global = load_dc_params()
+        print(f"\n🧠 Dixon-Coles chargé : {len(dc_team_params)} équipes, "
+              f"γ={dc_global['gamma']:.3f}, ρ={dc_global['rho']:+.3f}, "
+              f"ajusté depuis {int(dc_global['history_window_days'])} jours d'historique")
+    except Exception as e:
+        print(f"\n⚠️  Dixon-Coles indisponible ({e}). Fallback heuristique.")
+        dc_team_params, dc_global = None, None
+
     print("\n" + "=" * 95)
-    print(f"📊 REPORTING ELO & POISSON CORRIGÉ — {target_date}".center(95))
+    print(f"📊 REPORTING DIXON-COLES MLE — {target_date}".center(95))
     print("=" * 95)
 
     tous_les_pronos = []
@@ -213,10 +263,12 @@ def predict_today_matches():
         team_H = match['home_team']
         team_A = match['away_team']
 
-        markets, top_scores, lambdas = run_prediction_markets(
-            team_H, team_A, conn, dash, hist_global_avg, elo_df)
+        markets, top_scores, lambdas, method = run_prediction_markets(
+            team_H, team_A, conn, dash, hist_global_avg, elo_df,
+            dc_team_params, dc_global)
 
-        print(f"\n⚔️  MATCH : {team_H} vs {team_A}")
+        method_tag = "[DC]" if method == "DC" else "[heur.]"
+        print(f"\n⚔️  MATCH : {team_H} vs {team_A}  {method_tag}")
         print(f"   ↳ xG Projetés → {team_H}: {lambdas[0]:.2f} | {team_A}: {lambdas[1]:.2f}")
         print("   " + "-" * 85)
         print(f"   | 1N2            | 1: {markets['1N2']['1']:>5.1f}%  N: {markets['1N2']['N']:>5.1f}%  2: {markets['1N2']['2']:>5.1f}% |")
