@@ -1,0 +1,257 @@
+import sqlite3
+import pandas as pd
+import numpy as np
+from scipy.stats import poisson
+import datetime
+import os
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(PROJECT_ROOT, "data/db/foot_stats.db")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MOTEUR DE STATISTIQUES AVANCÉES & LISSAGE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_advanced_stats(conn):
+    # FIX BUG #3 : is_finished est stocké comme INTEGER (1) dans SQLite, pas 'TRUE'
+    df_curr = pd.read_sql_query("SELECT * FROM cdm_2026 WHERE is_finished = 1", conn)
+    dash = pd.DataFrame(columns=['avg_scored', 'avg_conceded', 'games_played'])
+
+    if not df_curr.empty:
+        df_curr['home_goals'] = pd.to_numeric(df_curr['home_goals'], errors='coerce').fillna(0)
+        df_curr['away_goals'] = pd.to_numeric(df_curr['away_goals'], errors='coerce').fillna(0)
+
+        home = df_curr[['home_team', 'home_goals', 'away_goals']].rename(
+            columns={'home_team': 'team', 'home_goals': 'goals_scored', 'away_goals': 'goals_conceded'})
+        away = df_curr[['away_team', 'away_goals', 'home_goals']].rename(
+            columns={'away_team': 'team', 'away_goals': 'goals_scored', 'home_goals': 'goals_conceded'})
+        all_curr = pd.concat([home, away])
+
+        dash = all_curr.groupby('team').agg(
+            avg_scored=('goals_scored', 'mean'),
+            avg_conceded=('goals_conceded', 'mean'),
+            games_played=('goals_scored', 'count')
+        )
+
+    try:
+        hist_avg_df = pd.read_sql_query(
+            "SELECT AVG(home_score) as h_avg, AVG(away_score) as a_avg FROM historical_matches", conn)
+        hist_global_avg = (hist_avg_df['h_avg'].iloc[0] + hist_avg_df['a_avg'].iloc[0]) / 2
+    except:
+        hist_global_avg = 1.35
+
+    try:
+        elo_df = pd.read_sql_query("SELECT * FROM team_elo", conn).set_index('team')
+    except:
+        elo_df = pd.DataFrame(columns=['elo_rating'])
+
+    return dash, hist_global_avg, elo_df
+
+
+def get_historical_power(conn, team, hist_global_avg):
+    query_recent = """
+        SELECT home_score, away_score, CASE WHEN home_team = ? THEN 'H' ELSE 'A' END as side
+        FROM historical_matches WHERE (home_team = ? OR away_team = ?) AND tournament != 'Friendly'
+        ORDER BY date DESC LIMIT 40;
+    """
+    recent_df = pd.read_sql_query(query_recent, conn, params=(team, team, team))
+
+    query_wc = """
+        SELECT home_score, away_score, CASE WHEN home_team = ? THEN 'H' ELSE 'A' END as side
+        FROM historical_matches WHERE (home_team = ? OR away_team = ?) AND tournament = 'FIFA World Cup';
+    """
+    wc_df = pd.read_sql_query(query_wc, conn, params=(team, team, team))
+
+    def calc_ratios(df):
+        if df.empty:
+            return 1.0, 1.0
+        scored = np.where(df['side'] == 'H', df['home_score'], df['away_score']).mean()
+        conceded = np.where(df['side'] == 'H', df['away_score'], df['home_score']).mean()
+        return (max(0.5, scored) / hist_global_avg), (max(0.5, conceded) / hist_global_avg)
+
+    r_rec_att, r_rec_def = calc_ratios(recent_df)
+    r_wc_att, r_wc_def = calc_ratios(wc_df)
+
+    if len(wc_df) < 3:
+        return r_rec_att, r_rec_def
+
+    final_attack  = (r_rec_att * 0.70) + (r_wc_att * 0.30)
+    final_defense = (r_rec_def * 0.70) + (r_wc_def * 0.30)
+    return final_attack, final_defense
+
+
+def get_h2h_modifier(conn, team_H, team_A):
+    query = """
+        SELECT home_team, home_score, away_score FROM historical_matches
+        WHERE (home_team = ? AND away_team = ?) OR (home_team = ? AND away_team = ?);
+    """
+    h2h_df = pd.read_sql_query(query, conn, params=(team_H, team_A, team_A, team_H))
+    if len(h2h_df) < 2:
+        return 1.0, 1.0
+    h_goals = np.where(h2h_df['home_team'] == team_H, h2h_df['home_score'], h2h_df['away_score']).sum()
+    a_goals = np.where(h2h_df['home_team'] == team_H, h2h_df['away_score'], h2h_df['home_score']).sum()
+    total = h_goals + a_goals
+    if total == 0:
+        return 1.0, 1.0
+    h_bias = 1 + max(-0.15, min(0.15, (h_goals - a_goals) / (total * 2)))
+    a_bias = 1 + max(-0.15, min(0.15, (a_goals - h_goals) / (total * 2)))
+    return h_bias, a_bias
+
+
+def dixon_coles_adjustment(score_matrix, lambda_H, lambda_A, rho=-0.06):
+    if score_matrix.shape[0] > 2 and score_matrix.shape[1] > 2:
+        score_matrix[0, 0] *= (1 - lambda_H * lambda_A * rho)
+        score_matrix[1, 0] *= (1 + lambda_A * rho)
+        score_matrix[0, 1] *= (1 + lambda_H * rho)
+        score_matrix[1, 1] *= (1 - rho)
+    return score_matrix
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MOTEUR DE PRÉDICTION MULTI-MARCHÉS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_prediction_markets(team_H, team_A, conn, dash, hist_global_avg, elo_df):
+    hist_H_att, hist_H_def = get_historical_power(conn, team_H, hist_global_avg)
+    hist_A_att, hist_A_def = get_historical_power(conn, team_A, hist_global_avg)
+    h2h_bias_H, h2h_bias_A = get_h2h_modifier(conn, team_H, team_A)
+
+    h_played = dash.loc[team_H, 'games_played'] if team_H in dash.index else 0
+    a_played = dash.loc[team_A, 'games_played'] if team_A in dash.index else 0
+
+    curr_H_att = max(0.4, (dash.loc[team_H, 'avg_scored']   / hist_global_avg)) if h_played > 0 else 1.0
+    curr_H_def = max(0.4, (dash.loc[team_H, 'avg_conceded'] / hist_global_avg)) if h_played > 0 else 1.0
+    curr_A_att = max(0.4, (dash.loc[team_A, 'avg_scored']   / hist_global_avg)) if a_played > 0 else 1.0
+    curr_A_def = max(0.4, (dash.loc[team_A, 'avg_conceded'] / hist_global_avg)) if a_played > 0 else 1.0
+
+    w_H = min(1.0, h_played / 5.0)
+    w_A = min(1.0, a_played / 5.0)
+
+    final_H_att = (curr_H_att * w_H) + (hist_H_att * (1 - w_H))
+    final_H_def = (curr_H_def * w_H) + (hist_H_def * (1 - w_H))
+    final_A_att = (curr_A_att * w_A) + (hist_A_att * (1 - w_A))
+    final_A_def = (curr_A_def * w_A) + (hist_A_def * (1 - w_A))
+
+    elo_H = elo_df.loc[team_H, 'elo_rating'] if team_H in elo_df.index else 1500
+    elo_A = elo_df.loc[team_A, 'elo_rating'] if team_A in elo_df.index else 1500
+    elo_diff  = (elo_H - elo_A) / 400
+    elo_H_mult = 1 + (elo_diff * 0.4)
+    elo_A_mult = 1 - (elo_diff * 0.4)
+
+    lambda_H = hist_global_avg * final_H_att * final_A_def * elo_H_mult * h2h_bias_H * 1.05
+    lambda_A = hist_global_avg * final_A_att * final_H_def * elo_A_mult * h2h_bias_A
+
+    lambda_H = max(0.4, min(lambda_H, 3.5))
+    lambda_A = max(0.4, min(lambda_A, 3.5))
+
+    max_goals = 6
+    probs_H = poisson.pmf(np.arange(max_goals), lambda_H)
+    probs_A = poisson.pmf(np.arange(max_goals), lambda_A)
+    score_matrix = np.outer(probs_H, probs_A)
+    score_matrix = dixon_coles_adjustment(score_matrix, lambda_H, lambda_A)
+    score_matrix /= score_matrix.sum()
+
+    p_H_win = np.sum(np.tril(score_matrix, -1))
+    p_draw   = np.sum(np.diag(score_matrix))
+    p_A_win  = np.sum(np.triu(score_matrix, 1))
+
+    p_over_1_5  = sum(score_matrix[i, j] for i in range(max_goals) for j in range(max_goals) if i + j > 1.5)
+    p_over_2_5  = sum(score_matrix[i, j] for i in range(max_goals) for j in range(max_goals) if i + j > 2.5)
+    p_under_2_5 = sum(score_matrix[i, j] for i in range(max_goals) for j in range(max_goals) if i + j < 2.5)
+    p_btts_yes  = sum(score_matrix[i, j] for i in range(1, max_goals) for j in range(1, max_goals))
+
+    markets = {
+        "1N2": {
+            "1": p_H_win * 100,
+            "N": p_draw  * 100,
+            "2": p_A_win * 100
+        },
+        "Double Chance": {
+            f"1N ({team_H} ou Nul)":  (p_H_win + p_draw) * 100,
+            f"N2 (Nul ou {team_A})":  (p_A_win + p_draw) * 100,
+            "12":                      (p_H_win + p_A_win) * 100
+        },
+        "Buts Totaux": {
+            "Plus de 1.5":  p_over_1_5  * 100,
+            "Plus de 2.5":  p_over_2_5  * 100,
+            "Moins de 2.5": p_under_2_5 * 100
+        },
+        "Les deux marquent": {
+            "Oui": p_btts_yes          * 100,
+            "Non": (1 - p_btts_yes)    * 100
+        }
+    }
+
+    scores_list = [(f"{i}-{j}", score_matrix[i, j] * 100) for i in range(max_goals) for j in range(max_goals)]
+    top_scores  = sorted(scores_list, key=lambda x: x[1], reverse=True)[:3]
+
+    return markets, top_scores, [lambda_H, lambda_A]
+
+
+def predict_today_matches():
+    target_date = datetime.date.today().strftime("%Y-%m-%d")
+
+    conn = sqlite3.connect(DB_PATH)
+    # FIX BUG #3 : is_finished = 0 (INTEGER), pas 'FALSE'
+    query = f"SELECT home_team, away_team FROM cdm_2026 WHERE date LIKE '{target_date}%' AND is_finished = 0"
+    upcoming_matches = pd.read_sql_query(query, conn)
+
+    if upcoming_matches.empty:
+        print(f"📅 Aucun match non joué programmé pour aujourd'hui ({target_date}).")
+        conn.close()
+        return
+
+    dash, hist_global_avg, elo_df = get_advanced_stats(conn)
+
+    print("\n" + "=" * 95)
+    print(f"📊 REPORTING ELO & POISSON CORRIGÉ — {target_date}".center(95))
+    print("=" * 95)
+
+    tous_les_pronos = []
+
+    for _, match in upcoming_matches.iterrows():
+        team_H = match['home_team']
+        team_A = match['away_team']
+
+        markets, top_scores, lambdas = run_prediction_markets(
+            team_H, team_A, conn, dash, hist_global_avg, elo_df)
+
+        print(f"\n⚔️  MATCH : {team_H} vs {team_A}")
+        print(f"   ↳ xG Projetés → {team_H}: {lambdas[0]:.2f} | {team_A}: {lambdas[1]:.2f}")
+        print("   " + "-" * 85)
+        print(f"   | 1N2            | 1: {markets['1N2']['1']:>5.1f}%  N: {markets['1N2']['N']:>5.1f}%  2: {markets['1N2']['2']:>5.1f}% |")
+
+        dc = list(markets['Double Chance'].items())
+        print(f"   | Double Chance  | {dc[0][0]:<30}: {dc[0][1]:>5.1f}% | {dc[1][0]:<30}: {dc[1][1]:>5.1f}% |")
+        print(f"   | Buts Totaux    | +1.5: {markets['Buts Totaux']['Plus de 1.5']:>5.1f}%  +2.5: {markets['Buts Totaux']['Plus de 2.5']:>5.1f}%  -2.5: {markets['Buts Totaux']['Moins de 2.5']:>5.1f}% |")
+        print(f"   | BTTS           | Oui: {markets['Les deux marquent']['Oui']:>5.1f}%  Non: {markets['Les deux marquent']['Non']:>5.1f}% |")
+        scores_str = "  ".join([f"[{s[0]}: {s[1]:.1f}%]" for s in top_scores])
+        print(f"   | TOP 3 Scores   | {scores_str}")
+        print("   " + "-" * 85)
+
+        tous_les_pronos.append({"match": f"{team_H} vs {team_A}", "market": dc[0][0], "prob": dc[0][1]})
+        tous_les_pronos.append({"match": f"{team_H} vs {team_A}", "market": dc[1][0], "prob": dc[1][1]})
+        tous_les_pronos.append({"match": f"{team_H} vs {team_A}", "market": "Plus de 1.5 Buts", "prob": markets['Buts Totaux']['Plus de 1.5']})
+        if markets['1N2']['1'] > 50:
+            tous_les_pronos.append({"match": f"{team_H} vs {team_A}", "market": f"Victoire {team_H}", "prob": markets['1N2']['1']})
+        if markets['1N2']['2'] > 50:
+            tous_les_pronos.append({"match": f"{team_H} vs {team_A}", "market": f"Victoire {team_A}", "prob": markets['1N2']['2']})
+
+    if tous_les_pronos:
+        bons_pronos = [p for p in tous_les_pronos if p['prob'] > 60]
+        bons_pronos.sort(key=lambda x: x['prob'], reverse=True)
+        golden = bons_pronos[0] if bons_pronos else max(tous_les_pronos, key=lambda x: x['prob'])
+
+        print("\n" + "⭐" * 55)
+        print("👑  LE PRONOSTIC EN OR DE LA JOURNÉE  👑".center(55))
+        print("⭐" * 55)
+        print(f"   🎯 MATCH      : {golden['match']}")
+        print(f"   🔮 SÉLECTION  : {golden['market']}")
+        print(f"   🔥 CERTITUDE  : {golden['prob']:.1f}%")
+        print("⭐" * 55 + "\n")
+
+    conn.close()
+
+
+if __name__ == "__main__":
+    predict_today_matches()
