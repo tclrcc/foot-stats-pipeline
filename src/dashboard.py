@@ -1,9 +1,17 @@
+import os
 import sqlite3
 import pandas as pd
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(PROJECT_ROOT, "data/db/foot_stats.db")
+
+
 def get_performance_dashboard():
-    conn = sqlite3.connect("data/db/foot_stats.db")
-    df = pd.read_sql_query("SELECT * FROM cdm_2026", conn)
+    conn = sqlite3.connect(DB_PATH)
+    # On ne garde que les matchs réellement joués pour le calcul des moyennes
+    df = pd.read_sql_query(
+        "SELECT * FROM cdm_2026 WHERE match_status = 'played'", conn
+    )
     conn.close()
     
     # On sépare les stats Domicile et Extérieur, puis on les empile (concat)
