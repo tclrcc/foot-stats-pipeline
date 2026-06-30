@@ -57,17 +57,24 @@ def build_player_impact_table():
     df_merged['dependency_pct'] = (df_merged['goals'] / df_merged['total_team_goals']) * 100
 
     # 7. Garder uniquement les équipes avec assez de data (10+ buts)
-    df_filtered = df_merged[df_merged['total_team_goals'] >= 10]
+    df_filtered = df_merged[df_merged['total_team_goals'] >= 10].copy()
 
-    # 8. Top 1 joueur par équipe (le plus décisif)
+    # 8a. Table 'team_dependencies' = top 1 buteur par équipe (rétro-compat)
     df_stars = (
         df_filtered
         .sort_values(['team', 'dependency_pct'], ascending=[True, False])
         .drop_duplicates(subset=['team'], keep='first')
     )
-
     df_final = df_stars.round(1)
     df_final.to_sql("team_dependencies", conn, if_exists="replace", index=False)
+
+    # 8b. Nouvelle table 'team_scorer_depth' = top 8 buteurs par équipe avec rang
+    # Utilisée par le module squad_impact pour évaluer la profondeur d'effectif.
+    df_filtered = df_filtered.sort_values(['team', 'dependency_pct'], ascending=[True, False])
+    df_filtered['rank'] = df_filtered.groupby('team').cumcount() + 1
+    df_depth = df_filtered[df_filtered['rank'] <= 8].copy()
+    df_depth = df_depth[['team', 'scorer', 'goals', 'dependency_pct', 'rank']].round(2)
+    df_depth.to_sql("team_scorer_depth", conn, if_exists="replace", index=False)
 
     # 9. Aperçu des équipes CDM 2026 les plus dépendantes
     cdm_teams_query = """
@@ -80,14 +87,14 @@ def build_player_impact_table():
         df_cdm_stars = df_final[df_final['team'].isin(cdm_teams)].copy()
         df_cdm_stars = df_cdm_stars.sort_values('dependency_pct', ascending=False)
 
-        print(f"\n✅ Table 'team_dependencies' créée — {len(df_final)} équipes.")
+        print(f"\n✅ Tables 'team_dependencies' ({len(df_final)}) et 'team_scorer_depth' ({len(df_depth)}) créées.")
         print("\n🌟 TOP 15 — Dépendances joueurs (équipes CDM 2026) :")
         print(f"   {'Équipe':<30} {'Joueur clé':<25} {'Buts':>5}  {'Dépendance':>10}")
         print("   " + "─" * 75)
         for _, row in df_cdm_stars.head(15).iterrows():
             print(f"   {row['team']:<30} {row['scorer']:<25} {int(row['goals']):>5}  {row['dependency_pct']:>9.1f}%")
     except Exception:
-        print(f"\n✅ Table 'team_dependencies' créée — {len(df_final)} équipes.")
+        print(f"\n✅ Tables 'team_dependencies' ({len(df_final)}) et 'team_scorer_depth' créées.")
 
     conn.close()
 

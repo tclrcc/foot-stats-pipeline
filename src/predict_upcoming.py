@@ -12,6 +12,9 @@ DB_PATH = os.path.join(PROJECT_ROOT, "data/db/foot_stats.db")
 # Permet d'importer le module Dixon-Coles
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from models.dixon_coles import load_params as load_dc_params, predict_lambdas as dc_predict
+from models.squad_impact import (
+    load_scorer_depth, load_absences, compute_attack_adjustment,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MOTEUR DE STATISTIQUES AVANCÉES & LISSAGE
@@ -117,12 +120,13 @@ def dixon_coles_adjustment(score_matrix, lambda_H, lambda_A, rho=-0.06):
 # CALCUL DES LAMBDAS — Dixon-Coles si dispo, sinon fallback heuristique
 # ─────────────────────────────────────────────────────────────────────────────
 def compute_lambdas(team_H, team_A, conn, dash, hist_global_avg, elo_df,
-                    dc_team_params, dc_global, neutral=True):
+                    dc_team_params, dc_global, neutral=True,
+                    attack_adj_H=1.0, attack_adj_A=1.0):
     """
     Retourne (lambda_H, lambda_A, rho_to_use, method) où method ∈ {'DC', 'heuristic'}.
 
-    En CDM 2026 on traite les matchs comme neutres par défaut (la plupart le sont).
-    Niveau 6 affinera l'avantage spécifique au pays hôte.
+    attack_adj_H, attack_adj_A : multiplicateurs sur l'attaque, calculés par
+    le module squad_impact en fonction des forfaits déclarés.
     """
     # 1) Tentative Dixon-Coles
     if dc_team_params is not None and dc_global is not None:
@@ -130,7 +134,9 @@ def compute_lambdas(team_H, team_A, conn, dash, hist_global_avg, elo_df,
         rho_dc = dc_global.get("rho", -0.06)
         lam, mu = dc_predict(team_H, team_A, neutral, dc_team_params, gamma)
         if lam is not None:
-            # Clip raisonnable pour stabilité numérique
+            # Application des ajustements d'attaque
+            lam *= attack_adj_H
+            mu  *= attack_adj_A
             lam = max(0.15, min(lam, 5.0))
             mu  = max(0.15, min(mu,  5.0))
             return lam, mu, rho_dc, "DC"
@@ -167,6 +173,10 @@ def compute_lambdas(team_H, team_A, conn, dash, hist_global_avg, elo_df,
     lam = hist_global_avg * final_H_att * final_A_def * elo_H_mult * h2h_bias_H * home_mult
     mu  = hist_global_avg * final_A_att * final_H_def * elo_A_mult * h2h_bias_A
 
+    # Ajustement absences
+    lam *= attack_adj_H
+    mu  *= attack_adj_A
+
     lam = max(0.4, min(lam, 3.5))
     mu  = max(0.4, min(mu,  3.5))
     return lam, mu, -0.06, "heuristic"
@@ -177,10 +187,12 @@ def compute_lambdas(team_H, team_A, conn, dash, hist_global_avg, elo_df,
 # ─────────────────────────────────────────────────────────────────────────────
 
 def run_prediction_markets(team_H, team_A, conn, dash, hist_global_avg, elo_df,
-                           dc_team_params, dc_global):
+                           dc_team_params, dc_global,
+                           attack_adj_H=1.0, attack_adj_A=1.0):
     lambda_H, lambda_A, rho_used, method = compute_lambdas(
         team_H, team_A, conn, dash, hist_global_avg, elo_df,
         dc_team_params, dc_global, neutral=True,
+        attack_adj_H=attack_adj_H, attack_adj_A=attack_adj_A,
     )
 
     max_goals = 6
@@ -253,6 +265,17 @@ def predict_today_matches():
         print(f"\n⚠️  Dixon-Coles indisponible ({e}). Fallback heuristique.")
         dc_team_params, dc_global = None, None
 
+    # Chargement des absences déclarées (data/absences.json)
+    try:
+        absences = load_absences()
+        depth_df = load_scorer_depth()
+        if absences:
+            print(f"📋 Absences déclarées pour {len(absences)} équipe(s) : "
+                  f"{list(absences.keys())}")
+    except Exception as e:
+        print(f"⚠️  Module squad_impact indisponible ({e}).")
+        absences, depth_df = {}, None
+
     print("\n" + "=" * 95)
     print(f"📊 REPORTING DIXON-COLES MLE — {target_date}".center(95))
     print("=" * 95)
@@ -263,13 +286,32 @@ def predict_today_matches():
         team_H = match['home_team']
         team_A = match['away_team']
 
+        # Calcul des ajustements d'attaque pour ce match
+        adj_H = compute_attack_adjustment(team_H, absences.get(team_H, []), depth_df) \
+                if depth_df is not None else {"multiplier": 1.0, "matched_absents": [], "unmatched_absents": [], "total_impact": 0.0}
+        adj_A = compute_attack_adjustment(team_A, absences.get(team_A, []), depth_df) \
+                if depth_df is not None else {"multiplier": 1.0, "matched_absents": [], "unmatched_absents": [], "total_impact": 0.0}
+
         markets, top_scores, lambdas, method = run_prediction_markets(
             team_H, team_A, conn, dash, hist_global_avg, elo_df,
-            dc_team_params, dc_global)
+            dc_team_params, dc_global,
+            attack_adj_H=adj_H["multiplier"], attack_adj_A=adj_A["multiplier"])
 
         method_tag = "[DC]" if method == "DC" else "[heur.]"
+        if adj_H["matched_absents"] or adj_A["matched_absents"]:
+            method_tag = method_tag.replace("]", "+abs]")
+
         print(f"\n⚔️  MATCH : {team_H} vs {team_A}  {method_tag}")
         print(f"   ↳ xG Projetés → {team_H}: {lambdas[0]:.2f} | {team_A}: {lambdas[1]:.2f}")
+
+        # Détail des absences appliquées
+        for side, team_name, adj in [("H", team_H, adj_H), ("A", team_A, adj_A)]:
+            if adj["matched_absents"]:
+                imp_pct = adj["total_impact"] * 100
+                names = ", ".join(adj["matched_absents"])
+                print(f"   ↳ Forfaits {team_name} : {names}  →  α × {adj['multiplier']:.2f} (-{imp_pct:.1f}%)")
+            if adj["unmatched_absents"]:
+                print(f"   ⚠️  Forfaits non reconnus {team_name} : {adj['unmatched_absents']} (ignorés)")
         print("   " + "-" * 85)
         print(f"   | 1N2            | 1: {markets['1N2']['1']:>5.1f}%  N: {markets['1N2']['N']:>5.1f}%  2: {markets['1N2']['2']:>5.1f}% |")
 
