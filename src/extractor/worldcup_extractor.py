@@ -40,26 +40,6 @@ def _canonical(name):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TABLE ELO (statique pour l'instant — sera dynamisée au Niveau 2)
-# ─────────────────────────────────────────────────────────────────────────────
-ELO_RATINGS = [
-    ('Argentina', 1790), ('France', 1745), ('Brazil', 1730), ('England', 1715),
-    ('Spain', 1720), ('Portugal', 1718), ('Germany', 1710), ('Netherlands', 1700),
-    ('Belgium', 1685), ('Croatia', 1675), ('Uruguay', 1660), ('Colombia', 1660),
-    ('Morocco', 1620), ('United States', 1615), ('Mexico', 1610), ('Switzerland', 1640),
-    ('Sweden', 1645), ('Norway', 1640), ('Austria', 1598), ('Czech Republic', 1590),
-    ('Turkey', 1585), ('Japan', 1580), ('South Korea', 1565), ('Senegal', 1600),
-    ('Ivory Coast', 1585), ('Algeria', 1555), ('Ecuador', 1560), ('Canada', 1555),
-    ('Ghana', 1485), ('Egypt', 1530), ('Iran', 1540), ('Australia', 1530),
-    ('Scotland', 1540), ('Tunisia', 1520), ('Paraguay', 1520),
-    ('Bosnia and Herzegovina', 1530), ('Saudi Arabia', 1490), ('Cape Verde', 1450),
-    ('Panama', 1450), ('South Africa', 1435), ('DR Congo', 1425), ('Uzbekistan', 1415),
-    ('New Zealand', 1420), ('Iraq', 1470), ('Qatar', 1445), ('Jordan', 1435),
-    ('Haiti', 1385), ('Curaçao', 1380),
-]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Étape 1 : récupérer le planning depuis l'API
 # ─────────────────────────────────────────────────────────────────────────────
 def fetch_schedule_from_api():
@@ -152,21 +132,6 @@ def build_cdm_table(schedule, kaggle_played, today=None):
 def write_to_db(cdm_df):
     conn = sqlite3.connect(DB_PATH)
     cdm_df.to_sql("cdm_2026", conn, if_exists="replace", index=False)
-
-    # Table ELO (refresh statique pour l'instant)
-    cursor = conn.cursor()
-    cursor.execute("DROP TABLE IF EXISTS team_elo;")
-    cursor.execute("""
-        CREATE TABLE team_elo (
-            team        TEXT PRIMARY KEY,
-            elo_rating  INTEGER
-        )
-    """)
-    seen = {}
-    for team, elo in ELO_RATINGS:
-        seen.setdefault(team, elo)
-    cursor.executemany("INSERT INTO team_elo VALUES (?, ?)", seen.items())
-
     conn.commit()
     conn.close()
 
@@ -175,7 +140,7 @@ def write_to_db(cdm_df):
     nb_scheduled = (cdm_df["match_status"] == "scheduled").sum()
     print(f"   📥 Table 'cdm_2026' : {nb_played} joués, "
           f"{nb_pending} en attente Kaggle, {nb_scheduled} à venir.")
-    print(f"   🏆 Table 'team_elo' : {len(seen)} équipes.")
+    print(f"   ℹ️  La table 'team_elo' est gérée par src/models/elo_engine.py")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
