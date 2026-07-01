@@ -16,6 +16,7 @@ from models.squad_impact import (
     load_scorer_depth, load_absences, compute_attack_adjustment,
 )
 from models.value_finder import find_values_for_match, print_values
+from models.context_cdm2026 import match_context
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "extractor"))
 from odds_extractor import load_odds
 
@@ -247,7 +248,7 @@ def predict_today_matches():
 
     conn = sqlite3.connect(DB_PATH)
     # FIX BUG #3 : is_finished = 0 (INTEGER), pas 'FALSE'
-    query = f"SELECT home_team, away_team FROM cdm_2026 WHERE date LIKE '{target_date}%' AND is_finished = 0"
+    query = f"SELECT date, home_team, away_team FROM cdm_2026 WHERE date LIKE '{target_date}%' AND is_finished = 0"
     upcoming_matches = pd.read_sql_query(query, conn)
 
     if upcoming_matches.empty:
@@ -299,6 +300,7 @@ def predict_today_matches():
     for _, match in upcoming_matches.iterrows():
         team_H = match['home_team']
         team_A = match['away_team']
+        match_date = match['date']
 
         # Calcul des ajustements d'attaque pour ce match
         adj_H = compute_attack_adjustment(team_H, absences.get(team_H, []), depth_df) \
@@ -306,17 +308,30 @@ def predict_today_matches():
         adj_A = compute_attack_adjustment(team_A, absences.get(team_A, []), depth_df) \
                 if depth_df is not None else {"multiplier": 1.0, "matched_absents": [], "unmatched_absents": [], "total_impact": 0.0}
 
+        # Ajustements contextuels CDM 2026 (hôte, élimination directe, altitude)
+        ctx = match_context(team_H, team_A, match_date, city=None)
+
+        # Multiplicateurs combinés : absences × contexte
+        combined_adj_H = adj_H["multiplier"] * ctx["lam_mult"]
+        combined_adj_A = adj_A["multiplier"] * ctx["mu_mult"]
+
         markets, top_scores, lambdas, method = run_prediction_markets(
             team_H, team_A, conn, dash, hist_global_avg, elo_df,
             dc_team_params, dc_global,
-            attack_adj_H=adj_H["multiplier"], attack_adj_A=adj_A["multiplier"])
+            attack_adj_H=combined_adj_H, attack_adj_A=combined_adj_A)
 
         method_tag = "[DC]" if method == "DC" else "[heur.]"
         if adj_H["matched_absents"] or adj_A["matched_absents"]:
             method_tag = method_tag.replace("]", "+abs]")
+        if ctx["notes"]:
+            method_tag = method_tag.replace("]", "+ctx]")
 
         print(f"\n⚔️  MATCH : {team_H} vs {team_A}  {method_tag}")
         print(f"   ↳ xG Projetés → {team_H}: {lambdas[0]:.2f} | {team_A}: {lambdas[1]:.2f}")
+
+        # Détail du contexte appliqué
+        for note in ctx["notes"]:
+            print(f"   ↳ 🌍 {note}")
 
         # Détail des absences appliquées
         for side, team_name, adj in [("H", team_H, adj_H), ("A", team_A, adj_A)]:
