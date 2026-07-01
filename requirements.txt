@@ -1,4 +1,6 @@
 requests
 beautifulsoup4
 pandas
+numpy
+scipy
 python-dotenv

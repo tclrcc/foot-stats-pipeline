@@ -60,19 +60,29 @@ RELEVANT_COMPETITIONS = [
 # ─────────────────────────────────────────────────────────────────────────────
 # CHARGEMENT DU CORPUS
 # ─────────────────────────────────────────────────────────────────────────────
-def load_training_corpus():
+def load_training_corpus(as_of=None, window_days=HISTORY_WINDOW_DAYS):
+    """
+    Charge le corpus d'entraînement.
+
+    as_of : si fourni (str/Timestamp), n'utilise QUE les matchs strictement
+            antérieurs à cette date (essentiel pour un backtest walk-forward
+            sans fuite de données). Par défaut = maintenant.
+    window_days : profondeur de la fenêtre glissante.
+    """
     conn = sqlite3.connect(DB_PATH)
-    cutoff = (pd.Timestamp.now() - pd.Timedelta(days=HISTORY_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    upper = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now()
+    lower = (upper - pd.Timedelta(days=window_days)).strftime("%Y-%m-%d")
+    upper_str = upper.strftime("%Y-%m-%d")
     placeholders = ",".join(["?"] * len(RELEVANT_COMPETITIONS))
 
     df = pd.read_sql_query(f"""
         SELECT date, home_team, away_team, home_score, away_score, neutral
         FROM historical_matches
-        WHERE date >= ?
+        WHERE date >= ? AND date < ?
           AND home_score IS NOT NULL AND away_score IS NOT NULL
           AND tournament IN ({placeholders})
         ORDER BY date ASC
-    """, conn, params=[cutoff] + RELEVANT_COMPETITIONS)
+    """, conn, params=[lower, upper_str] + RELEVANT_COMPETITIONS)
     conn.close()
 
     df["date"]       = pd.to_datetime(df["date"])
@@ -160,7 +170,7 @@ def _neg_log_likelihood(params, h_idx, a_idx, h_score, a_score, is_neutral, weig
 # ─────────────────────────────────────────────────────────────────────────────
 # FIT
 # ─────────────────────────────────────────────────────────────────────────────
-def fit(df):
+def fit(df, as_of=None, verbose=True):
     teams = sorted(set(df["home_team"]) | set(df["away_team"]))
     team_idx = {t: i for i, t in enumerate(teams)}
     n_teams = len(teams)
@@ -171,13 +181,14 @@ def fit(df):
     a_score     = df["away_score"].values.astype(int)
     is_neutral  = df["neutral"].values
 
-    # Poids de décroissance temporelle
-    today    = pd.Timestamp.now().normalize()
-    age_days = (today - df["date"]).dt.days.values.astype(float)
+    # Poids de décroissance temporelle relatifs à la date de référence
+    ref_date = pd.Timestamp(as_of).normalize() if as_of is not None else pd.Timestamp.now().normalize()
+    age_days = (ref_date - df["date"]).dt.days.values.astype(float)
     weights  = np.exp(-XI_DAY * age_days)
 
-    print(f"   📊 {len(df):,} matchs × {n_teams} équipes")
-    print(f"   ⏳ Poids effectif (= matchs équivalents pleins) : {weights.sum():.0f}")
+    if verbose:
+        print(f"   📊 {len(df):,} matchs × {n_teams} équipes")
+        print(f"   ⏳ Poids effectif (= matchs équivalents pleins) : {weights.sum():.0f}")
 
     # Initialisation : α=β=1, γ=1.3, ρ=-0.05
     x0 = np.zeros(2 * n_teams + 2)
@@ -186,7 +197,8 @@ def fit(df):
 
     bounds = [(-2.0, 2.0)] * (2 * n_teams) + [(0.0, 0.7), (-0.4, 0.2)]
 
-    print(f"   ⚙️  Optimisation MLE (L-BFGS-B)...")
+    if verbose:
+        print(f"   ⚙️  Optimisation MLE (L-BFGS-B)...")
     result = minimize(
         _neg_log_likelihood,
         x0,
@@ -196,11 +208,12 @@ def fit(df):
         options={"maxiter": 2000, "maxfun": 100000, "ftol": 1e-9, "gtol": 1e-7},
     )
 
-    if result.success:
-        print(f"   ✅ Convergence atteinte (NLL={result.fun:.1f}, itérations={result.nit})")
-    else:
-        print(f"   ⚠️  Convergence partielle : {result.message}")
-        print(f"      NLL={result.fun:.1f}, itérations={result.nit}")
+    if verbose:
+        if result.success:
+            print(f"   ✅ Convergence atteinte (NLL={result.fun:.1f}, itérations={result.nit})")
+        else:
+            print(f"   ⚠️  Convergence partielle : {result.message}")
+            print(f"      NLL={result.fun:.1f}, itérations={result.nit}")
 
     # Extraction
     log_alpha = result.x[:n_teams]
@@ -327,6 +340,45 @@ def predict_lambdas(home, away, neutral, team_params, gamma):
     lam = eff_gamma * a_h * b_a
     mu  = a_a * b_h
     return float(lam), float(mu)
+
+
+def score_matrix(lam, mu, rho, max_goals=10):
+    """Matrice des probabilités de score (i,j) avec correction Dixon-Coles."""
+    from scipy.stats import poisson
+    probs_h = poisson.pmf(np.arange(max_goals), lam)
+    probs_a = poisson.pmf(np.arange(max_goals), mu)
+    mat = np.outer(probs_h, probs_a)
+    mat[0, 0] *= (1 - lam * mu * rho)
+    mat[1, 0] *= (1 + mu * rho)
+    mat[0, 1] *= (1 + lam * rho)
+    mat[1, 1] *= (1 - rho)
+    s = mat.sum()
+    return mat / s if s > 0 else mat
+
+
+def market_probabilities(lam, mu, rho, max_goals=10):
+    """
+    Dict de probabilités pour les principaux marchés, à partir de λ, μ, ρ.
+    Utilisé par le backtest et le value finder pour rester cohérent.
+    """
+    mat = score_matrix(lam, mu, rho, max_goals)
+
+    p_home = float(np.tril(mat, -1).sum())
+    p_draw = float(np.diag(mat).sum())
+    p_away = float(np.triu(mat, 1).sum())
+
+    idx = np.arange(max_goals)
+    totals = idx[:, None] + idx[None, :]
+    p_over_15  = float(mat[totals > 1].sum())
+    p_over_25  = float(mat[totals > 2].sum())
+    p_under_25 = float(mat[totals < 3].sum())
+    p_btts_yes = float(mat[1:, 1:].sum())
+
+    return {
+        "home": p_home, "draw": p_draw, "away": p_away,
+        "over_1_5": p_over_15, "over_2_5": p_over_25, "under_2_5": p_under_25,
+        "btts_yes": p_btts_yes, "btts_no": 1.0 - p_btts_yes,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

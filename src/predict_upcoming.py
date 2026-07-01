@@ -15,6 +15,9 @@ from models.dixon_coles import load_params as load_dc_params, predict_lambdas as
 from models.squad_impact import (
     load_scorer_depth, load_absences, compute_attack_adjustment,
 )
+from models.value_finder import find_values_for_match, print_values
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "extractor"))
+from odds_extractor import load_odds
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MOTEUR DE STATISTIQUES AVANCÉES & LISSAGE
@@ -276,6 +279,17 @@ def predict_today_matches():
         print(f"⚠️  Module squad_impact indisponible ({e}).")
         absences, depth_df = {}, None
 
+    # Chargement des cotes (data/odds.json + API optionnelle)
+    try:
+        match_odds_all = load_odds()
+        if match_odds_all:
+            print(f"💰 Cotes chargées pour {len(match_odds_all)} match(s).")
+    except Exception as e:
+        print(f"⚠️  Cotes indisponibles ({e}).")
+        match_odds_all = {}
+
+    all_values = []   # accumulateur de value bets
+
     print("\n" + "=" * 95)
     print(f"📊 REPORTING DIXON-COLES MLE — {target_date}".center(95))
     print("=" * 95)
@@ -323,6 +337,25 @@ def predict_today_matches():
         print(f"   | TOP 3 Scores   | {scores_str}")
         print("   " + "-" * 85)
 
+        # ── Détection de value bets pour ce match (si cotes dispo) ──
+        match_key = f"{team_H} vs {team_A}"
+        match_odds = match_odds_all.get(match_key)
+        if match_odds:
+            model_probs = {
+                "home":      markets['1N2']['1'] / 100,
+                "draw":      markets['1N2']['N'] / 100,
+                "away":      markets['1N2']['2'] / 100,
+                "over_1_5":  markets['Buts Totaux']['Plus de 1.5'] / 100,
+                "over_2_5":  markets['Buts Totaux']['Plus de 2.5'] / 100,
+                "under_2_5": markets['Buts Totaux']['Moins de 2.5'] / 100,
+                "btts_yes":  markets['Les deux marquent']['Oui'] / 100,
+                "btts_no":   markets['Les deux marquent']['Non'] / 100,
+            }
+            match_values = find_values_for_match(match_key, model_probs, match_odds)
+            all_values.extend(match_values)
+            if match_values:
+                print(f"   💎 {len(match_values)} value(s) détectée(s) sur ce match")
+
         tous_les_pronos.append({"match": f"{team_H} vs {team_A}", "market": dc[0][0], "prob": dc[0][1]})
         tous_les_pronos.append({"match": f"{team_H} vs {team_A}", "market": dc[1][0], "prob": dc[1][1]})
         tous_les_pronos.append({"match": f"{team_H} vs {team_A}", "market": "Plus de 1.5 Buts", "prob": markets['Buts Totaux']['Plus de 1.5']})
@@ -330,6 +363,10 @@ def predict_today_matches():
             tous_les_pronos.append({"match": f"{team_H} vs {team_A}", "market": f"Victoire {team_H}", "prob": markets['1N2']['1']})
         if markets['1N2']['2'] > 50:
             tous_les_pronos.append({"match": f"{team_H} vs {team_A}", "market": f"Victoire {team_A}", "prob": markets['1N2']['2']})
+
+    # ── Récapitulatif des value bets de la journée ──
+    if match_odds_all:
+        print_values(all_values)
 
     if tous_les_pronos:
         bons_pronos = [p for p in tous_les_pronos if p['prob'] > 60]
