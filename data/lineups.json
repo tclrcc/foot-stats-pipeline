@@ -1,0 +1,11 @@
+{
+  "_doc": "Compositions réelles par match (remplies à H-1 via l'API-Football ou à la main). Clé = 'Équipe_H vs Équipe_A' (noms EXACTS du modèle). Par équipe : formation, ref_off/ref_def = niveau de référence à pleine puissance (moyenne des notes des meilleurs joueurs par ligne), et xi = 11 titulaires avec position (G/D/M/F) et note. Le moteur compare le XI à la référence et ajuste les xG (±25% max). Postes M,F pilotent l'attaque ; G,D la défense.",
+  "_exemple": {
+    "Belgium vs Senegal": {
+      "home": {"team": "Belgium", "formation": "4-3-3", "ref_off": 7.10, "ref_def": 6.95,
+        "xi": [{"pos":"G","rating":7.0},{"pos":"D","rating":7.1},{"pos":"D","rating":6.9},{"pos":"D","rating":7.0},{"pos":"D","rating":6.8},{"pos":"M","rating":7.3},{"pos":"M","rating":7.1},{"pos":"M","rating":7.0},{"pos":"F","rating":7.4},{"pos":"F","rating":7.2},{"pos":"F","rating":7.0}]},
+      "away": {"team": "Senegal", "formation": "4-3-3", "ref_off": 7.00, "ref_def": 6.90,
+        "xi": [{"pos":"G","rating":6.9},{"pos":"D","rating":6.8},{"pos":"D","rating":7.0},{"pos":"D","rating":6.9},{"pos":"D","rating":6.7},{"pos":"M","rating":6.9},{"pos":"M","rating":7.0},{"pos":"M","rating":6.8},{"pos":"F","rating":7.1},{"pos":"F","rating":6.9},{"pos":"F","rating":6.8}]}
+    }
+  }
+}

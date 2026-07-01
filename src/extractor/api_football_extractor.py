@@ -69,13 +69,25 @@ def get_match_lineups(fixture_id):
         coach_name = team_data['coach']['name']
         formation = team_data['formation']
         
-        # Extraction des 11 titulaires
+        # Extraction des 11 titulaires (noms simples, rétro-compat)
         starters = [player['player']['name'] for player in team_data['startXI']]
-        
+
+        # Extraction détaillée avec position (G/D/M/F) — requise par le
+        # module lineup_strength du Niveau 7.
+        starters_detailed = [
+            {
+                "name": player['player']['name'],
+                "pos":  player['player'].get('pos'),
+                "grid": player['player'].get('grid'),
+            }
+            for player in team_data['startXI']
+        ]
+
         lineups_data[team_name] = {
             "coach": coach_name,
             "formation": formation,
-            "starters": starters
+            "starters": starters,
+            "starters_detailed": starters_detailed,
         }
         
         print(f"✅ {team_name} | Coach: {coach_name} | Dispo: {formation}")

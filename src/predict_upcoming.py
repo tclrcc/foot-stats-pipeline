@@ -17,6 +17,7 @@ from models.squad_impact import (
 )
 from models.value_finder import find_values_for_match, print_values
 from models.context_cdm2026 import match_context
+from models.lineup_strength import match_lineup_adjustment
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "extractor"))
 from odds_extractor import load_odds
 
@@ -289,6 +290,21 @@ def predict_today_matches():
         print(f"⚠️  Cotes indisponibles ({e}).")
         match_odds_all = {}
 
+    # Chargement des compositions (data/lineups.json — manuel ou rempli par l'API)
+    lineups_all = {}
+    lineups_path = os.path.join(PROJECT_ROOT, "data/lineups.json")
+    try:
+        if os.path.exists(lineups_path):
+            import json
+            with open(lineups_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            lineups_all = {k: v for k, v in raw.items() if not k.startswith("_")}
+            if lineups_all:
+                print(f"👥 Compositions chargées pour {len(lineups_all)} match(s).")
+    except Exception as e:
+        print(f"⚠️  Compositions indisponibles ({e}).")
+        lineups_all = {}
+
     all_values = []   # accumulateur de value bets
 
     print("\n" + "=" * 95)
@@ -315,6 +331,19 @@ def predict_today_matches():
         combined_adj_H = adj_H["multiplier"] * ctx["lam_mult"]
         combined_adj_A = adj_A["multiplier"] * ctx["mu_mult"]
 
+        # Ajustement force de composition (si compo dispo pour ce match)
+        match_key0 = f"{team_H} vs {team_A}"
+        lineup_notes = []
+        if match_key0 in lineups_all:
+            ld = lineups_all[match_key0]
+            try:
+                lin = match_lineup_adjustment(ld["home"], ld["away"])
+                combined_adj_H *= lin["lam_mult"]
+                combined_adj_A *= lin["mu_mult"]
+                lineup_notes = lin["notes"]
+            except Exception as e:
+                lineup_notes = [f"compo ignorée (format invalide : {e})"]
+
         markets, top_scores, lambdas, method = run_prediction_markets(
             team_H, team_A, conn, dash, hist_global_avg, elo_df,
             dc_team_params, dc_global,
@@ -325,6 +354,8 @@ def predict_today_matches():
             method_tag = method_tag.replace("]", "+abs]")
         if ctx["notes"]:
             method_tag = method_tag.replace("]", "+ctx]")
+        if lineup_notes:
+            method_tag = method_tag.replace("]", "+XI]")
 
         print(f"\n⚔️  MATCH : {team_H} vs {team_A}  {method_tag}")
         print(f"   ↳ xG Projetés → {team_H}: {lambdas[0]:.2f} | {team_A}: {lambdas[1]:.2f}")
@@ -332,6 +363,9 @@ def predict_today_matches():
         # Détail du contexte appliqué
         for note in ctx["notes"]:
             print(f"   ↳ 🌍 {note}")
+        # Détail de la composition
+        for note in lineup_notes:
+            print(f"   ↳ 👥 {note}")
 
         # Détail des absences appliquées
         for side, team_name, adj in [("H", team_H, adj_H), ("A", team_A, adj_A)]:

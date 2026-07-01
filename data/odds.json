@@ -1,5 +1,5 @@
 {
-  "_doc": "Cotes décimales par match. Clé = 'Équipe Domicile vs Équipe Extérieur' (noms EXACTS de la base, accents inclus, ex. 'Curaçao'). Marchés reconnus : 1N2 {1,N,2}, Totaux {Over 2.5, Under 2.5, Over 1.5}, BTTS {Oui, Non}. Le moteur retire la marge du book, calcule l'EV et la mise Kelly. Alternative : configure ODDS_API_KEY dans .env pour l'API the-odds-api (lance predict avec load_odds(prefer_api=True)).",
+  "_doc": "Cotes décimales par match. Clé = 'Équipe Domicile vs Équipe Extérieur' (noms EXACTS de la base). Marchés : 1N2 {1,N,2}, Totaux {Over 2.5, Under 2.5, Over 1.5}, BTTS {Oui, Non}. Le moteur retire la marge, calcule EV et mise Kelly.",
   "_exemple": {
     "France vs Sweden": {
       "1N2": {"1": 1.65, "N": 3.80, "2": 5.50},
