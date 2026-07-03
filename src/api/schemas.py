@@ -72,3 +72,58 @@ class UpcomingMatch(BaseModel):
     home_team: str
     away_team: str
     prediction: Optional[Prediction] = None
+
+
+# ─── Dossier de match ───
+class FormMatch(BaseModel):
+    date: str
+    opponent: str
+    score: str
+    result: str
+    competition: str
+    venue: str
+
+
+class TeamForm(BaseModel):
+    matches: List[FormMatch]
+    summary: dict
+    streaks: dict
+
+
+class H2HMatch(BaseModel):
+    date: str
+    home: str
+    away: str
+    score: str
+    competition: str
+
+
+class HeadToHead(BaseModel):
+    played: int
+    home_wins: int
+    draws: int
+    away_wins: int
+    home_goals: int
+    away_goals: int
+    recent: List[H2HMatch]
+    last_meeting: Optional[H2HMatch] = None
+
+
+class MatchFixture(BaseModel):
+    home_team: str
+    away_team: str
+    neutral: bool
+    date: Optional[str] = None
+    stage: str
+    is_knockout: bool
+    host_playing: Optional[str] = None
+
+
+class MatchDossier(BaseModel):
+    fixture: MatchFixture
+    prediction: Prediction
+    strength: dict
+    form: dict
+    head_to_head: HeadToHead
+    key_players: dict
+    storylines: List[str]

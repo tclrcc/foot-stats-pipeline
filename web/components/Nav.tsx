@@ -2,6 +2,7 @@ import Link from "next/link";
 
 const links = [
   { href: "/", label: "Accueil" },
+  { href: "/match", label: "Dossier de match" },
   { href: "/predict", label: "Prédire un match" },
   { href: "/teams", label: "Classement" },
   { href: "/model", label: "Performance du modèle" },

@@ -67,6 +67,41 @@ export interface ModelPerformance {
   message: string | null;
 }
 
+export interface FormMatch {
+  date: string; opponent: string; score: string;
+  result: string; competition: string; venue: string;
+}
+export interface TeamFormData {
+  matches: FormMatch[];
+  summary: { w: number; d: number; l: number; gf: number; ga: number };
+  streaks: { unbeaten: number; winless: number; scoring: number; clean_sheets: number };
+}
+export interface H2HMatch {
+  date: string; home: string; away: string; score: string; competition: string;
+}
+export interface HeadToHead {
+  played: number; home_wins: number; draws: number; away_wins: number;
+  home_goals: number; away_goals: number;
+  recent: H2HMatch[]; last_meeting: H2HMatch | null;
+}
+export interface StrengthSide {
+  elo: number | null; elo_rank: number | null;
+  attack: number | null; defense: number | null;
+}
+export interface MatchDossier {
+  fixture: {
+    home_team: string; away_team: string; neutral: boolean;
+    date: string | null; stage: string; is_knockout: boolean;
+    host_playing: string | null;
+  };
+  prediction: Prediction;
+  strength: { home: StrengthSide; away: StrengthSide; elo_gap: number | null; favorite: string | null };
+  form: { home: TeamFormData; away: TeamFormData };
+  head_to_head: HeadToHead;
+  key_players: { home: KeyPlayer[]; away: KeyPlayer[] };
+  storylines: string[];
+}
+
 // ─── Helpers de fetch (revalidation ISR : 1h pour les données stables) ───
 async function get<T>(path: string, revalidate = 3600): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
@@ -87,6 +122,13 @@ export const api = {
       `/predict?home=${encodeURIComponent(home)}&away=${encodeURIComponent(
         away
       )}&neutral=${neutral}`,
+      0
+    ),
+  dossier: (home: string, away: string, neutral: boolean, date?: string) =>
+    get<MatchDossier>(
+      `/match/dossier?home=${encodeURIComponent(home)}&away=${encodeURIComponent(
+        away
+      )}&neutral=${neutral}${date ? `&date=${date}` : ""}`,
       0
     ),
 };

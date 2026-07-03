@@ -15,9 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import service
+import analysis
 from schemas import (
     TeamRating, TeamDetail, Prediction, ModelInfo,
-    ModelPerformance, UpcomingMatch,
+    ModelPerformance, UpcomingMatch, MatchDossier,
 )
 
 app = FastAPI(
@@ -114,3 +115,23 @@ def get_upcoming(
 ):
     """Prochains matchs programmés, avec leur prédiction."""
     return service.upcoming_matches(limit, with_prediction)
+
+
+@app.get("/match/dossier", response_model=MatchDossier, tags=["prediction"])
+def get_match_dossier(
+    home: str = Query(..., description="Équipe à domicile"),
+    away: str = Query(..., description="Équipe à l'extérieur"),
+    neutral: bool = Query(True, description="Terrain neutre"),
+    date: str = Query(None, description="Date du match (YYYY-MM-DD) pour le contexte"),
+):
+    """
+    Dossier d'avant-match complet : prédiction, forme récente, face-à-face,
+    comparaison des forces, hommes clés et angles narratifs pour journalistes.
+    """
+    result = analysis.match_dossier(home, away, neutral, match_date=date)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Équipe(s) inconnue(s) du modèle : '{home}' ou '{away}'",
+        )
+    return result
