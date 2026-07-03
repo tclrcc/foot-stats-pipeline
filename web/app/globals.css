@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: theme("colors.ink");
+  color: theme("colors.chalk");
+  font-feature-settings: "tnum" 1, "cv01" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Chiffres tabulaires partout où on affiche des données */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Grille de fond subtile façon terrain */
+.pitch-grid {
+  background-image:
+    linear-gradient(theme("colors.line") 1px, transparent 1px),
+    linear-gradient(90deg, theme("colors.line") 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: center;
+  opacity: 0.35;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
