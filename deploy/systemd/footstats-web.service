@@ -1,0 +1,19 @@
+[Unit]
+Description=Football Stats Web (Next.js)
+After=network.target footstats-api.service
+Wants=footstats-api.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/foot-stats-pipeline/web
+Environment=NODE_ENV=production
+Environment=API_BASE=http://127.0.0.1:8000
+Environment=PORT=3000
+# next start (via npm) ; sert le build de production sur le port 3000
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

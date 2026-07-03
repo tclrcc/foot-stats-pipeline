@@ -1,0 +1,15 @@
+[Unit]
+Description=Football Stats API (FastAPI / uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/foot-stats-pipeline
+# uvicorn du venv ; bind sur 127.0.0.1 uniquement (nginx/Next.js y accèdent en local)
+ExecStart=/home/ubuntu/foot-stats-pipeline/.venv/bin/uvicorn src.api.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
