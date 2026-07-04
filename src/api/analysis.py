@@ -28,6 +28,20 @@ def _connect():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 
+def load_coaches():
+    """Charge data/coaches.json → dict {équipe: infos}. {} si absent."""
+    import json
+    fpath = os.path.join(PROJECT_ROOT, "data/coaches.json")
+    if not os.path.exists(fpath):
+        return {}
+    try:
+        with open(fpath, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        return raw.get("coaches", {})
+    except Exception:
+        return {}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # FORME RÉCENTE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -354,10 +368,20 @@ def match_dossier(home, away, neutral=True, match_date=None):
     meta = _match_meta(home, away, match_date)
     dynamics = match_dynamics(home, away, neutral, strength, meta["is_knockout"])
 
+    # Sélectionneurs (contexte éditorial)
+    coaches_map = load_coaches()
+    coaches = {"home": coaches_map.get(home), "away": coaches_map.get(away)}
+
     storylines = generate_storylines(
         home, away, pred, strength, form_h, form_a, h2h,
         players_h, players_a, meta["is_knockout"],
     )
+    storylines += _coach_storylines(home, away, coaches)
+    # Choc de styles dans la lecture tactique
+    if dynamics is not None:
+        clash = _style_clash(home, away, coaches)
+        if clash:
+            dynamics["tactical_read"].insert(0, clash)
 
     return {
         "fixture": {
@@ -372,5 +396,34 @@ def match_dossier(home, away, neutral=True, match_date=None):
         "form": {"home": form_h, "away": form_a},
         "head_to_head": h2h,
         "key_players": {"home": players_h, "away": players_a},
+        "coaches": coaches,
         "storylines": storylines,
     }
+
+
+def _coach_storylines(home, away, coaches):
+    """Angles narratifs liés aux bancs de touche."""
+    out = []
+    for team, side in ((home, "home"), (away, "away")):
+        c = coaches.get(side)
+        if c and c.get("context"):
+            out.append(f"Sur le banc de {team} : {c['name']} — {c['context']}")
+    return out
+
+
+def _style_clash(home, away, coaches):
+    """Détecte un contraste de styles entre les deux sélectionneurs."""
+    ch, ca = coaches.get("home"), coaches.get("away")
+    if not ch or not ca:
+        return None
+    sh = " ".join(ch.get("style", [])).lower()
+    sa = " ".join(ca.get("style", [])).lower()
+    press_h = "pressing" in sh
+    press_a = "pressing" in sa
+    poss_h = "possession" in sh
+    poss_a = "possession" in sa
+    if press_h and poss_a:
+        return f"Choc de styles : le pressing haut de {ch['name']} ({home}) face à la maîtrise du ballon de {ca['name']} ({away})."
+    if press_a and poss_h:
+        return f"Choc de styles : la possession de {ch['name']} ({home}) face au pressing haut de {ca['name']} ({away})."
+    return None

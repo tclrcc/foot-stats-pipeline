@@ -128,4 +128,5 @@ class MatchDossier(BaseModel):
     form: dict
     head_to_head: HeadToHead
     key_players: dict
+    coaches: Optional[dict] = None
     storylines: List[str]

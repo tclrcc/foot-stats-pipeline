@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { MatchDossier, MatchDynamics, TeamRating, TeamFormData, HeadToHead, StrengthSide, KeyPlayer } from "@/lib/api";
+import type { MatchDossier, MatchDynamics, TeamRating, TeamFormData, HeadToHead, StrengthSide, KeyPlayer, CoachInfo } from "@/lib/api";
 import { ProbBars, DuoBar } from "./ProbBars";
 import { ScoreHeatmap } from "./ScoreHeatmap";
 
@@ -109,6 +109,16 @@ function Dossier({ d }: { d: MatchDossier }) {
       {/* Physionomie & lecture tactique */}
       {d.dynamics && <DynamicsPanel dyn={d.dynamics} homeName={f.home_team} awayName={f.away_team} />}
 
+      {/* Sur les bancs : sélectionneurs */}
+      {d.coaches && (d.coaches.home || d.coaches.away) && (
+        <Panel title="Sur les bancs">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <CoachCard coach={d.coaches.home} team={f.home_team} accent="pitch" />
+            <CoachCard coach={d.coaches.away} team={f.away_team} accent="clay" />
+          </div>
+        </Panel>
+      )}
+
       {/* Comparaison des forces */}
       <Panel title="Rapport de force">
         <StrengthCompare home={d.strength.home} away={d.strength.away} homeName={f.home_team} awayName={f.away_team} />
@@ -167,6 +177,35 @@ function Dossier({ d }: { d: MatchDossier }) {
 }
 
 // ─── Sous-composants ───
+
+function CoachCard({ coach, team, accent }: { coach: CoachInfo | null; team: string; accent: "pitch" | "clay" }) {
+  if (!coach) {
+    return (
+      <div className="rounded-md border border-line bg-ink/40 p-4 text-sm text-mist">
+        {team} — sélectionneur non renseigné.
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-line bg-ink/40 p-4">
+      <div className="flex items-baseline justify-between">
+        <span className={`font-display text-lg font-semibold text-${accent}`}>{coach.name}</span>
+        {coach.formation && <span className="font-mono text-xs text-mist">{coach.formation}</span>}
+      </div>
+      <div className="mt-0.5 text-xs text-mist">
+        {team}{coach.since ? ` · depuis ${coach.since}` : ""}
+      </div>
+      {coach.style && coach.style.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {coach.style.map((s) => (
+            <span key={s} className="rounded border border-line px-2 py-0.5 text-xs text-chalk">{s}</span>
+          ))}
+        </div>
+      )}
+      {coach.note && <p className="mt-3 text-sm leading-relaxed text-mist">{coach.note}</p>}
+    </div>
+  );
+}
 
 function DynamicsPanel({ dyn, homeName, awayName }: { dyn: MatchDynamics; homeName: string; awayName: string }) {
   const sc = dyn.scenarios;

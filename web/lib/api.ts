@@ -101,6 +101,14 @@ export interface MatchDynamics {
   };
   tactical_read: string[];
 }
+export interface CoachInfo {
+  name: string;
+  since?: string;
+  context?: string;
+  style?: string[];
+  formation?: string;
+  note?: string;
+}
 export interface MatchDossier {
   fixture: {
     home_team: string; away_team: string; neutral: boolean;
@@ -113,6 +121,7 @@ export interface MatchDossier {
   form: { home: TeamFormData; away: TeamFormData };
   head_to_head: HeadToHead;
   key_players: { home: KeyPlayer[]; away: KeyPlayer[] };
+  coaches: { home: CoachInfo | null; away: CoachInfo | null } | null;
   storylines: string[];
 }
 

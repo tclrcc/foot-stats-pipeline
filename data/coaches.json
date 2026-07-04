@@ -1,0 +1,21 @@
+{
+  "_doc": "Sélectionneurs et identité tactique (éditorial). Complété à la main ; noms à vérifier en ligne car ils changent. Clé = nom EXACT de l'équipe dans le modèle. Champs : name, since, context (le récit/enjeu), style (tags tactiques), formation (dispositif de prédilection), note (texte libre).",
+  "coaches": {
+    "Morocco": {
+      "name": "Mohamed Ouahbi",
+      "since": "mars 2026",
+      "context": "Champion du monde U20 2025 au Chili, il remplace Walid Regragui (demi-finaliste du Mondial 2022, finaliste de la CAN 2025) après la CAN perdue à domicile.",
+      "style": ["possession", "continuité tactique", "milieu fluide"],
+      "formation": "4-3-3",
+      "note": "Prône la continuité plutôt qu'une révolution. Milieu de terrain mobile qui attaque dans toutes les directions à la récupération. 17 ans formateur à Anderlecht."
+    },
+    "Canada": {
+      "name": "Jesse Marsch",
+      "since": "mai 2024",
+      "context": "Technicien américain de l'école Red Bull (Salzbourg, Leipzig, Leeds). A hissé le Canada de la 50e à la 30e place FIFA.",
+      "style": ["pressing haut", "intensité", "transitions rapides"],
+      "formation": "4-2-3-1",
+      "note": "Identité offensive et pressing agressif qu'il refuse de renier. Équipe bâtie autour de Jonathan David et Alphonso Davies. Compte sur la fraîcheur face à un Maroc ayant joué 120 minutes au tour précédent."
+    }
+  }
+}
