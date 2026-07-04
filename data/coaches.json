@@ -1,5 +1,5 @@
 {
-  "_doc": "Sélectionneurs et identité tactique (éditorial). Complété à la main ; noms à vérifier en ligne car ils changent. Clé = nom EXACT de l'équipe dans le modèle. Champs : name, since, context (le récit/enjeu), style (tags tactiques), formation (dispositif de prédilection), note (texte libre).",
+  "_doc": "Sélectionneurs et identité tactique (éditorial ; noms vérifiés en ligne). Clé = nom EXACT de l'équipe dans le modèle. Champs : name, since, context (récit/enjeu), style (tags — 'pressing' et 'possession' déclenchent la détection de choc de styles), formation, note.",
   "coaches": {
     "Morocco": {
       "name": "Mohamed Ouahbi",
@@ -16,6 +16,118 @@
       "style": ["pressing haut", "intensité", "transitions rapides"],
       "formation": "4-2-3-1",
       "note": "Identité offensive et pressing agressif qu'il refuse de renier. Équipe bâtie autour de Jonathan David et Alphonso Davies. Compte sur la fraîcheur face à un Maroc ayant joué 120 minutes au tour précédent."
+    },
+    "France": {
+      "name": "Didier Deschamps",
+      "since": "2012",
+      "context": "Champion du monde 2018, finaliste 2022. Ce Mondial est annoncé comme son dernier sur le banc des Bleus.",
+      "style": ["bloc médian", "transitions", "solidité défensive"],
+      "formation": "4-2-3-1",
+      "note": "Le profil de coupe par excellence : l'équipe s'assoit, absorbe, puis punit l'espace plus vite que personne via Mbappé et Dembélé. Sait gagner sans le ballon ; plus en difficulté quand il faut construire face à un bloc bas."
+    },
+    "Paraguay": {
+      "name": "Gustavo Alfaro",
+      "since": "août 2024",
+      "context": "Technicien argentin réputé pour bâtir des blocs difficiles à manœuvrer. A qualifié le Paraguay en verrouillant la défense.",
+      "style": ["solidité défensive", "jeu réactif", "bloc compact"],
+      "formation": "4-3-2-1",
+      "note": "Dispositif équilibré axé sur la solidité et le jeu réactif : 0,56 but encaissé par match en qualifications sud-américaines. Almirón et Enciso exploitent les espaces derrière l'attaquant."
+    },
+    "Brazil": {
+      "name": "Carlo Ancelotti",
+      "since": "2025",
+      "context": "Premier sélectionneur étranger de la Seleção en Coupe du monde. Palmarès XXL en club (5 Ligues des champions).",
+      "style": ["adaptabilité", "gestion des cadres", "pragmatisme"],
+      "formation": "4-2-3-1",
+      "note": "Maître de la gestion d'hommes et de l'adaptation : ajuste son dispositif au talent disponible plutôt qu'à un système rigide. Laisse la liberté à ses individualités offensives."
+    },
+    "Norway": {
+      "name": "Ståle Solbakken",
+      "since": "2020",
+      "context": "A ramené la Norvège en Coupe du monde pour la première fois depuis 1998, édition qu'il avait disputée comme joueur.",
+      "style": ["jeu direct", "verticalité", "finition Haaland"],
+      "formation": "4-3-3",
+      "note": "Jeu direct et vertical taillé pour exploiter Erling Haaland en pointe, avec Martin Ødegaard pour créer. Une machine à marquer en qualifications."
+    },
+    "Mexico": {
+      "name": "Javier Aguirre",
+      "since": "2024",
+      "context": "Vétéran des bancs (\"El Vasco\"), à son quatrième Mondial comme sélectionneur. Nation hôte, avantage de l'altitude à Mexico.",
+      "style": ["organisation", "intensité", "pragmatisme"],
+      "formation": "4-3-3",
+      "note": "Approche pragmatique et combative, équipe bien organisée et intense. S'appuie sur l'atout du public et de l'altitude à domicile."
+    },
+    "England": {
+      "name": "Thomas Tuchel",
+      "since": "octobre 2024",
+      "context": "Technicien allemand, formé à l'école du pressing (Rangnick) avant de virer vers le jeu de position. Premier sélectionneur étranger de l'Angleterre depuis longtemps.",
+      "style": ["possession", "contrôle", "jeu de position"],
+      "formation": "4-3-3",
+      "note": "Version la plus rigide du jeu de position du tournoi : contrôle total, priorité à la structure pour prévenir les transitions adverses. A écarté Foden et Palmer au nom de la cohérence tactique. Peine parfois à trouver la passe décisive face aux blocs bas."
+    },
+    "Portugal": {
+      "name": "Roberto Martínez",
+      "since": "2023",
+      "context": "Technicien espagnol, adepte convaincu du jeu de position. Emmène un Cristiano Ronaldo de 41 ans à son sixième Mondial (record).",
+      "style": ["jeu de position", "transitions", "coups de pied arrêtés"],
+      "formation": "4-3-3",
+      "note": "Milieu de terrain peut-être le meilleur du tournoi (Vitinha, João Neves, Bruno Fernandes) et vitesse dans le dernier tiers avec Leão. Tranchant vers l'avant mais fragile quand le match tourne et qu'il faut courir après le score."
+    },
+    "Spain": {
+      "name": "Luis de la Fuente",
+      "since": "décembre 2022",
+      "context": "Vainqueur de l'Euro 2024 et de la Nations League 2023. Promu depuis les sélections de jeunes, très apprécié de son groupe.",
+      "style": ["possession", "jeu de position", "circulation patiente"],
+      "formation": "4-3-3",
+      "note": "L'idée la plus reproductible du tournoi : construction positionnelle, couloirs fixes, défense de repos installée, circulation patiente qui attend la passe. Lamine Yamal et la largeur étirent le bloc adverse."
+    },
+    "United States": {
+      "name": "Mauricio Pochettino",
+      "since": "2024",
+      "context": "Technicien argentin de renom (Tottenham, PSG, Chelsea), à la tête du pays hôte principal.",
+      "style": ["pressing haut", "polyvalence", "intensité"],
+      "formation": "4-3-3",
+      "note": "Pressing et intensité, avec une grande polyvalence positionnelle — il déplace beaucoup Christian Pulisic sur le front de l'attaque. Bénéficie du statut de nation hôte."
+    },
+    "Belgium": {
+      "name": "Rudi Garcia",
+      "since": "2025",
+      "context": "Technicien français, en charge d'une génération dorée (De Bruyne, Doku, Lukaku) désormais en transition.",
+      "style": ["attaque", "qualité individuelle", "4-3-3 offensif"],
+      "formation": "4-3-3",
+      "note": "Mise sur la qualité individuelle offensive d'un groupe talentueux mais en renouvellement. À enrichir avec ta lecture personnelle."
+    },
+    "Argentina": {
+      "name": "Lionel Scaloni",
+      "since": "2018",
+      "context": "Champion du monde 2022, double vainqueur de la Copa América. Dernier grand tournoi probable de Lionel Messi.",
+      "style": ["jeu relationnel", "cohésion", "solidité défensive"],
+      "formation": "4-3-3",
+      "note": "Football \"relationnel\" hérité de la tradition argentine : le ballon et son environnement immédiat au centre, plus que la position. Groupe soudé, structure pensée pour que Messi soit un luxe, pas un pilier obligatoire. N'a pas encaissé en phase de groupes."
+    },
+    "Egypt": {
+      "name": "Hossam Hassan",
+      "since": "2024",
+      "context": "Meilleur buteur de l'histoire des Pharaons, il dirige avec son frère jumeau Ibrahim. Obsédé par la victoire.",
+      "style": ["collectif", "contre-attaque", "Salah libéré"],
+      "formation": "4-2-3-1",
+      "note": "Priorité au collectif et à l'organisation. A confié à Mohamed Salah un nouveau rôle plus libre et créatif dans une structure définie, sans dépendre d'une ou deux stars."
+    },
+    "Switzerland": {
+      "name": "Murat Yakin",
+      "since": "2021",
+      "context": "Sélectionneur régulier de la Suisse, réputé pour sa constance dans les grands tournois.",
+      "style": ["construction", "conservation", "surcharges larges"],
+      "formation": "3-4-2-1",
+      "note": "Dispositif à trois défenseurs axé sur la construction depuis l'arrière, la surcharge des couloirs et la conservation. Granit Xhaka en pivot dicte le jeu ; équilibre entre créativité et discipline."
+    },
+    "Colombia": {
+      "name": "Néstor Lorenzo",
+      "since": "2022",
+      "context": "Technicien argentin, auteur d'une longue série d'invincibilité et d'une finale de Copa América 2024.",
+      "style": ["attaque", "créativité", "James en meneur"],
+      "formation": "4-2-3-1",
+      "note": "Jeu porté vers l'avant articulé autour de la créativité de James Rodríguez, retrouvé à son meilleur niveau. À enrichir avec ta lecture personnelle."
     }
   }
 }
