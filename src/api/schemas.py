@@ -71,6 +71,7 @@ class UpcomingMatch(BaseModel):
     date: str
     home_team: str
     away_team: str
+    stage: Optional[str] = None
     prediction: Optional[Prediction] = None
 
 
@@ -122,6 +123,7 @@ class MatchFixture(BaseModel):
 class MatchDossier(BaseModel):
     fixture: MatchFixture
     prediction: Prediction
+    dynamics: Optional[dict] = None
     strength: dict
     form: dict
     head_to_head: HeadToHead

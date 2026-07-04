@@ -11,10 +11,13 @@ import os
 import sqlite3
 import sys
 
+import numpy as np
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
 
 import service
+import dixon_coles as dc
 from context_cdm2026 import is_knockout, HOST_NATIONS
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -202,6 +205,122 @@ def _match_meta(home, away, date):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PHYSIONOMIE & LECTURE TACTIQUE
+# ─────────────────────────────────────────────────────────────────────────────
+def match_dynamics(home, away, neutral, strength, is_ko):
+    """
+    Dérive la physionomie probable du match depuis la distribution des scores,
+    et une lecture tactique depuis les profils offensifs/défensifs.
+    """
+    tp, glob = service.get_model_params()
+    gamma, rho = glob.get("gamma", 1.3), glob.get("rho", -0.1)
+    lam, mu = dc.predict_lambdas(home, away, neutral, tp, gamma)
+    if lam is None:
+        return None
+
+    mat = dc.score_matrix(lam, mu, rho, max_goals=10)
+    n = mat.shape[0]
+    idx = np.arange(n)
+    diff = idx[:, None] - idx[None, :]          # buts_home - buts_away
+    total = idx[:, None] + idx[None, :]
+
+    p_draw   = float(np.diag(mat).sum())
+    p_margin1 = float(mat[np.abs(diff) == 1].sum())
+    p_tight  = p_draw + p_margin1
+    p_home_2 = float(mat[diff >= 2].sum())
+    p_away_2 = float(mat[diff <= -2].sum())
+    p_blowout = p_home_2 + p_away_2
+    p_home_cs = float(mat[:, 0].sum())          # extérieur ne marque pas
+    p_away_cs = float(mat[0, :].sum())          # domicile ne marque pas
+    p_under_15 = float(mat[total <= 1].sum())
+    p_over_35  = float(mat[total >= 4].sum())
+
+    total_xg = lam + mu
+    balance = lam - mu
+
+    # Profil de match
+    if total_xg <= 2.0:
+        openness = "verrouillé"
+    elif total_xg >= 3.0:
+        openness = "ouvert"
+    else:
+        openness = "modéré"
+
+    if abs(balance) >= 0.9:
+        tilt = "déséquilibré"
+    elif abs(balance) <= 0.35:
+        tilt = "équilibré"
+    else:
+        tilt = "légèrement déséquilibré"
+
+    profile = {
+        ("verrouillé", "équilibré"): "Combat défensif serré",
+        ("verrouillé", "légèrement déséquilibré"): "Match fermé, léger favori",
+        ("verrouillé", "déséquilibré"): "Domination sans spectacle",
+        ("modéré", "équilibré"): "Duel équilibré",
+        ("modéré", "légèrement déséquilibré"): "Match disputé, un favori se dégage",
+        ("modéré", "déséquilibré"): "Favori net, adversaire accrocheur",
+        ("ouvert", "équilibré"): "Match ouvert et indécis",
+        ("ouvert", "légèrement déséquilibré"): "Rencontre animée, un favori",
+        ("ouvert", "déséquilibré"): "Démonstration offensive annoncée",
+    }.get((openness, tilt), "Duel équilibré")
+
+    # Indice de tempo (ouverture) 0-100 : mappe total_xg de 1.4 → 3.6
+    tempo = int(max(0, min(100, (total_xg - 1.4) / (3.6 - 1.4) * 100)))
+
+    # Prolongation (8es) : proxy = P(nul à 90')
+    extra_time = p_draw if is_ko else None
+
+    # ── Lecture tactique depuis α/β ──
+    sh, sa = strength["home"], strength["away"]
+    reads = []
+    fav = strength.get("favorite")
+
+    # Meilleure défense en jeu ?
+    def_best = None
+    if sh["defense"] is not None and sa["defense"] is not None:
+        if min(sh["defense"], sa["defense"]) <= 0.30:
+            def_best = home if sh["defense"] <= sa["defense"] else away
+            other = away if def_best == home else home
+            reads.append(
+                f"{def_best} présente l'une des défenses les plus hermétiques du tournoi. "
+                f"La clé du match : {other} parviendra-t-il à la faire céder ?"
+            )
+
+    # Attaque forte contre défense faible ?
+    if sh["attack"] and sa["defense"] and sh["attack"] >= 3.3 and sa["defense"] >= 0.45:
+        reads.append(f"L'attaque de {home} devrait trouver des espaces face à une défense adverse plus perméable.")
+    if sa["attack"] and sh["defense"] and sa["attack"] >= 3.3 and sh["defense"] >= 0.45:
+        reads.append(f"L'attaque de {away} a les armes pour exploiter les failles défensives de {home}.")
+
+    # Physionomie synthétique
+    if openness == "verrouillé":
+        reads.append("Peu de buts attendus : le match devrait se jouer sur des détails, un coup de génie ou un coup de pied arrêté.")
+    elif openness == "ouvert":
+        reads.append("Les deux équipes ayant de quoi marquer, la rencontre s'annonce rythmée et à plusieurs buts.")
+
+    if is_ko and p_draw >= 0.30:
+        reads.append(f"Match à élimination directe très indécis : {p_draw*100:.0f}% de probabilité de nul à l'issue des 90 minutes — la prolongation est une hypothèse sérieuse.")
+
+    return {
+        "profile": profile,
+        "openness": openness,
+        "tempo": tempo,
+        "total_xg": round(total_xg, 2),
+        "scenarios": {
+            "tight": round(p_tight * 100, 1),
+            "blowout": round(p_blowout * 100, 1),
+            "clean_sheet_home": round(p_home_cs * 100, 1),
+            "clean_sheet_away": round(p_away_cs * 100, 1),
+            "under_1_5": round(p_under_15 * 100, 1),
+            "over_3_5": round(p_over_35 * 100, 1),
+            "extra_time": round(extra_time * 100, 1) if extra_time is not None else None,
+        },
+        "tactical_read": reads,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # DOSSIER COMPLET
 # ─────────────────────────────────────────────────────────────────────────────
 def match_dossier(home, away, neutral=True, match_date=None):
@@ -233,6 +352,7 @@ def match_dossier(home, away, neutral=True, match_date=None):
     players_h = th.get("key_players", [])
     players_a = ta.get("key_players", [])
     meta = _match_meta(home, away, match_date)
+    dynamics = match_dynamics(home, away, neutral, strength, meta["is_knockout"])
 
     storylines = generate_storylines(
         home, away, pred, strength, form_h, form_a, h2h,
@@ -247,6 +367,7 @@ def match_dossier(home, away, neutral=True, match_date=None):
             "host_playing": meta["host_playing"],
         },
         "prediction": pred,
+        "dynamics": dynamics,
         "strength": strength,
         "form": {"home": form_h, "away": form_a},
         "head_to_head": h2h,

@@ -1,25 +1,35 @@
 "use client";
 
-import { useState } from "react";
-import type { MatchDossier, TeamRating, TeamFormData, HeadToHead, StrengthSide, KeyPlayer } from "@/lib/api";
+import { useState, useEffect } from "react";
+import type { MatchDossier, MatchDynamics, TeamRating, TeamFormData, HeadToHead, StrengthSide, KeyPlayer } from "@/lib/api";
 import { ProbBars, DuoBar } from "./ProbBars";
 import { ScoreHeatmap } from "./ScoreHeatmap";
 
-export function MatchAnalysis({ teams }: { teams: TeamRating[] }) {
+export function MatchAnalysis({
+  teams,
+  initialHome,
+  initialAway,
+  autoRun = false,
+}: {
+  teams: TeamRating[];
+  initialHome?: string;
+  initialAway?: string;
+  autoRun?: boolean;
+}) {
   const names = teams.map((t) => t.team);
-  const [home, setHome] = useState("Spain");
-  const [away, setAway] = useState("Portugal");
+  const [home, setHome] = useState(initialHome && names.includes(initialHome) ? initialHome : "Spain");
+  const [away, setAway] = useState(initialAway && names.includes(initialAway) ? initialAway : "Portugal");
   const [loading, setLoading] = useState(false);
   const [dossier, setDossier] = useState<MatchDossier | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function run() {
+  async function run(h = home, a = away) {
     setLoading(true);
     setError(null);
     try {
       const today = new Date().toISOString().slice(0, 10);
       const res = await fetch(
-        `/api/dossier?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}&neutral=true&date=${today}`
+        `/api/dossier?home=${encodeURIComponent(h)}&away=${encodeURIComponent(a)}&neutral=true&date=${today}`
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
@@ -32,6 +42,12 @@ export function MatchAnalysis({ teams }: { teams: TeamRating[] }) {
     }
   }
 
+  // Auto-charge le dossier si on arrive avec ?home=&away=
+  useEffect(() => {
+    if (autoRun && initialHome && initialAway) run(initialHome, initialAway);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="rounded-card border border-line bg-slate p-5">
@@ -42,7 +58,7 @@ export function MatchAnalysis({ teams }: { teams: TeamRating[] }) {
         </div>
         <div className="mt-4 flex justify-end">
           <button
-            onClick={run}
+            onClick={() => run()}
             disabled={loading || home === away}
             className="rounded-md bg-pitch px-5 py-2 text-sm font-semibold text-ink transition-opacity hover:opacity-90 disabled:opacity-40"
           >
@@ -89,6 +105,9 @@ function Dossier({ d }: { d: MatchDossier }) {
           ))}
         </ul>
       </Panel>
+
+      {/* Physionomie & lecture tactique */}
+      {d.dynamics && <DynamicsPanel dyn={d.dynamics} homeName={f.home_team} awayName={f.away_team} />}
 
       {/* Comparaison des forces */}
       <Panel title="Rapport de force">
@@ -148,6 +167,74 @@ function Dossier({ d }: { d: MatchDossier }) {
 }
 
 // ─── Sous-composants ───
+
+function DynamicsPanel({ dyn, homeName, awayName }: { dyn: MatchDynamics; homeName: string; awayName: string }) {
+  const sc = dyn.scenarios;
+  const rows: { label: string; value: number }[] = [
+    { label: "Match serré (≤ 1 but d'écart)", value: sc.tight },
+    { label: "Écart net (2 buts ou +)", value: sc.blowout },
+    { label: `Cage inviolée — ${homeName}`, value: sc.clean_sheet_home },
+    { label: `Cage inviolée — ${awayName}`, value: sc.clean_sheet_away },
+    { label: "Moins de 1,5 but", value: sc.under_1_5 },
+    { label: "Plus de 3,5 buts", value: sc.over_3_5 },
+  ];
+  if (sc.extra_time !== null) rows.push({ label: "Nul à 90' → prolongation probable", value: sc.extra_time });
+
+  return (
+    <div className="rounded-card border border-line bg-slate p-5">
+      <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-mist">
+        Physionomie de la rencontre
+      </h3>
+
+      {/* Profil + jauge de tempo */}
+      <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="font-display text-2xl font-bold text-chalk">{dyn.profile}</div>
+          <div className="mt-1 text-xs text-mist">{dyn.total_xg} buts attendus au total</div>
+        </div>
+        <div className="w-full sm:w-56">
+          <div className="mb-1 flex justify-between text-xs text-mist">
+            <span>Verrouillé</span><span>Ouvert</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-line">
+            <div className="h-full rounded-full bg-gradient-to-r from-royal to-signal" style={{ width: `${Math.max(4, dyn.tempo)}%` }} />
+          </div>
+          <div className="mt-1 text-right font-mono text-xs tabular text-mist">tempo {dyn.tempo}/100</div>
+        </div>
+      </div>
+
+      {/* Scénarios probables */}
+      <div className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+        {rows.map((r) => (
+          <div key={r.label}>
+            <div className="mb-1 flex justify-between text-xs">
+              <span className="text-mist">{r.label}</span>
+              <span className="font-mono tabular text-chalk">{r.value.toFixed(0)}%</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
+              <div className="h-full rounded-full bg-pitch" style={{ width: `${r.value}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Lecture tactique */}
+      {dyn.tactical_read.length > 0 && (
+        <div className="mt-5 border-t border-line pt-4">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-mist">Lecture tactique</div>
+          <ul className="space-y-2">
+            {dyn.tactical_read.map((r, i) => (
+              <li key={i} className="flex gap-2.5 text-sm text-chalk">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-pitch" />
+                <span>{r}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StrengthCompare({ home, away, homeName, awayName }: { home: StrengthSide; away: StrengthSide; homeName: string; awayName: string }) {
   const rows = [

@@ -206,18 +206,66 @@ def model_performance():
 # Matchs à venir (CDM 2026 — sera généralisable à d'autres compétitions)
 # ─────────────────────────────────────────────────────────────────────────────
 def upcoming_matches(limit=20, with_prediction=True):
+    """
+    Matchs à venir : fusionne les matchs 'scheduled' de cdm_2026 (issus de
+    l'API worldcup26.ir) avec un fichier manuel data/fixtures.json.
+
+    Le fichier manuel garantit que le tableau (ex. 8es de finale) reste
+    disponible même quand l'API planning est indisponible. Format :
+      [{"date": "2026-07-04 19:00", "home": "Canada", "away": "Morocco",
+        "stage": "Round of 16"}, ...]
+    """
+    seen = set()
+    fixtures = []
+
+    # 1) cdm_2026 (scheduled)
     conn = _connect()
-    rows = conn.execute("""
-        SELECT date, home_team, away_team
-        FROM cdm_2026
-        WHERE match_status = 'scheduled'
-        ORDER BY date ASC
-        LIMIT ?
-    """, (limit,)).fetchall()
+    try:
+        rows = conn.execute("""
+            SELECT date, home_team, away_team
+            FROM cdm_2026 WHERE match_status = 'scheduled'
+            ORDER BY date ASC
+        """).fetchall()
+    except Exception:
+        rows = []
     conn.close()
+    for date, home, away in rows:
+        key = (str(date)[:10], home, away)
+        if key in seen:
+            continue
+        seen.add(key)
+        fixtures.append({"date": date, "home_team": home, "away_team": away, "stage": None})
+
+    # 2) fixtures.json (manuel) — complète / garantit le tableau
+    import json
+    fpath = os.path.join(PROJECT_ROOT, "data/fixtures.json")
+    if os.path.exists(fpath):
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            entries = raw if isinstance(raw, list) else raw.get("fixtures", [])
+            for e in entries:
+                home, away = e.get("home"), e.get("away")
+                date = e.get("date", "")
+                if not home or not away:
+                    continue
+                key = (str(date)[:10], home, away)
+                if key in seen:
+                    continue
+                seen.add(key)
+                fixtures.append({"date": date, "home_team": home,
+                                 "away_team": away, "stage": e.get("stage")})
+        except Exception:
+            pass
+
+    # Tri chronologique
+    fixtures.sort(key=lambda x: str(x["date"]))
+    fixtures = fixtures[:limit]
 
     out = []
-    for date, home, away in rows:
-        pred = predict(home, away, neutral=True) if with_prediction else None
-        out.append({"date": date, "home_team": home, "away_team": away, "prediction": pred})
+    for fx in fixtures:
+        pred = predict(fx["home_team"], fx["away_team"], neutral=True) if with_prediction else None
+        out.append({"date": str(fx["date"]), "home_team": fx["home_team"],
+                    "away_team": fx["away_team"], "stage": fx.get("stage"),
+                    "prediction": pred})
     return out

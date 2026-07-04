@@ -88,6 +88,19 @@ export interface StrengthSide {
   elo: number | null; elo_rank: number | null;
   attack: number | null; defense: number | null;
 }
+export interface MatchDynamics {
+  profile: string;
+  openness: string;
+  tempo: number;
+  total_xg: number;
+  scenarios: {
+    tight: number; blowout: number;
+    clean_sheet_home: number; clean_sheet_away: number;
+    under_1_5: number; over_3_5: number;
+    extra_time: number | null;
+  };
+  tactical_read: string[];
+}
 export interface MatchDossier {
   fixture: {
     home_team: string; away_team: string; neutral: boolean;
@@ -95,11 +108,20 @@ export interface MatchDossier {
     host_playing: string | null;
   };
   prediction: Prediction;
+  dynamics: MatchDynamics | null;
   strength: { home: StrengthSide; away: StrengthSide; elo_gap: number | null; favorite: string | null };
   form: { home: TeamFormData; away: TeamFormData };
   head_to_head: HeadToHead;
   key_players: { home: KeyPlayer[]; away: KeyPlayer[] };
   storylines: string[];
+}
+
+export interface UpcomingMatch {
+  date: string;
+  home_team: string;
+  away_team: string;
+  stage: string | null;
+  prediction: Prediction | null;
 }
 
 // ─── Helpers de fetch (revalidation ISR : 1h pour les données stables) ───
@@ -131,6 +153,8 @@ export const api = {
       )}&neutral=${neutral}${date ? `&date=${date}` : ""}`,
       0
     ),
+  upcoming: (limit = 20) =>
+    get<UpcomingMatch[]>(`/matches/upcoming?limit=${limit}&with_prediction=true`, 0),
 };
 
 export { API_BASE };
