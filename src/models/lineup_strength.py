@@ -153,9 +153,9 @@ def match_lineup_adjustment(home_data, away_data):
     """
     notes = []
 
-    # Notes joueurs
-    h_att, h_def, h_note = team_multipliers(home_data["xi"], home_data["ref_off"], home_data["ref_def"])
-    a_att, a_def, a_note = team_multipliers(away_data["xi"], away_data["ref_off"], away_data["ref_def"])
+    # Notes joueurs (ref_off/ref_def optionnels : sans eux, seule la formation joue)
+    h_att, h_def, h_note = team_multipliers(home_data.get("xi", []), home_data.get("ref_off"), home_data.get("ref_def"))
+    a_att, a_def, a_note = team_multipliers(away_data.get("xi", []), away_data.get("ref_off"), away_data.get("ref_def"))
 
     # Formation
     h_fown, h_fopp, h_flabel = formation_adjustment(home_data.get("formation"))

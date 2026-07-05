@@ -117,8 +117,11 @@ def get_team(team_name):
 # ─────────────────────────────────────────────────────────────────────────────
 # Prédiction d'un match
 # ─────────────────────────────────────────────────────────────────────────────
-def predict(home, away, neutral=True):
-    """Prédiction complète pour un match. None si équipe inconnue."""
+def predict(home, away, neutral=True, lam_mult=1.0, mu_mult=1.0):
+    """
+    Prédiction complète pour un match. None si équipe inconnue.
+    lam_mult / mu_mult : multiplicateurs appliqués aux xG (compo, contexte…).
+    """
     team_params, glob = get_model_params()
     gamma = glob.get("gamma", 1.3)
     rho = glob.get("rho", -0.1)
@@ -126,6 +129,9 @@ def predict(home, away, neutral=True):
     lam, mu = dc.predict_lambdas(home, away, neutral, team_params, gamma)
     if lam is None:
         return None
+
+    lam *= lam_mult
+    mu  *= mu_mult
 
     probs = dc.market_probabilities(lam, mu, rho)
 
@@ -156,7 +162,7 @@ def predict(home, away, neutral=True):
         "top_scorelines": [
             {"score": s, "probability": round(p * 100, 1)} for s, p in top
         ],
-        "method": "dixon_coles",
+        "method": "dixon_coles" if (lam_mult == 1.0 and mu_mult == 1.0) else "dixon_coles+compo",
     }
 
 

@@ -109,6 +109,15 @@ export interface CoachInfo {
   formation?: string;
   note?: string;
 }
+export interface LineupPlayer {
+  pos: string;
+  name?: string;
+  rating?: number;
+}
+export interface MatchLineups {
+  home: { formation?: string; xi: LineupPlayer[] };
+  away: { formation?: string; xi: LineupPlayer[] };
+}
 export interface MatchDossier {
   fixture: {
     home_team: string; away_team: string; neutral: boolean;
@@ -122,6 +131,7 @@ export interface MatchDossier {
   head_to_head: HeadToHead;
   key_players: { home: KeyPlayer[]; away: KeyPlayer[] };
   coaches: { home: CoachInfo | null; away: CoachInfo | null } | null;
+  lineups: MatchLineups | null;
   storylines: string[];
 }
 

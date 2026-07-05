@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { MatchDossier, MatchDynamics, TeamRating, TeamFormData, HeadToHead, StrengthSide, KeyPlayer, CoachInfo } from "@/lib/api";
+import type { MatchDossier, MatchDynamics, TeamRating, TeamFormData, HeadToHead, StrengthSide, KeyPlayer, CoachInfo, MatchLineups } from "@/lib/api";
 import { ProbBars, DuoBar } from "./ProbBars";
 import { ScoreHeatmap } from "./ScoreHeatmap";
 
@@ -119,6 +119,16 @@ function Dossier({ d }: { d: MatchDossier }) {
         </Panel>
       )}
 
+      {/* Compositions */}
+      {d.lineups && (d.lineups.home?.xi?.length || d.lineups.away?.xi?.length) ? (
+        <Panel title="Compositions">
+          <div className="grid gap-6 sm:grid-cols-2">
+            <LineupColumn side={d.lineups.home} team={f.home_team} accent="pitch" />
+            <LineupColumn side={d.lineups.away} team={f.away_team} accent="clay" />
+          </div>
+        </Panel>
+      ) : null}
+
       {/* Comparaison des forces */}
       <Panel title="Rapport de force">
         <StrengthCompare home={d.strength.home} away={d.strength.away} homeName={f.home_team} awayName={f.away_team} />
@@ -177,6 +187,46 @@ function Dossier({ d }: { d: MatchDossier }) {
 }
 
 // ─── Sous-composants ───
+
+function LineupColumn({ side, team, accent }: { side: MatchLineups["home"]; team: string; accent: "pitch" | "clay" }) {
+  const lines: { label: string; codes: string[] }[] = [
+    { label: "Gardien", codes: ["G"] },
+    { label: "Défenseurs", codes: ["D"] },
+    { label: "Milieux", codes: ["M"] },
+    { label: "Attaquants", codes: ["F"] },
+  ];
+  return (
+    <div className="rounded-md border border-line bg-ink/40 p-4">
+      <div className="mb-3 flex items-baseline justify-between">
+        <span className={`font-display text-lg font-semibold text-${accent}`}>{team}</span>
+        {side.formation && (
+          <span className="rounded border border-line px-2 py-0.5 font-mono text-xs text-chalk">
+            {side.formation}
+          </span>
+        )}
+      </div>
+      <div className="space-y-2.5">
+        {lines.map((line) => {
+          const players = side.xi.filter((p) => line.codes.includes(p.pos));
+          if (!players.length) return null;
+          return (
+            <div key={line.label}>
+              <div className="mb-1 text-xs uppercase tracking-wider text-mist">{line.label}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {players.map((p, i) => (
+                  <span key={i} className="rounded bg-slate px-2 py-1 text-sm text-chalk">
+                    {p.name || p.pos}
+                    {p.rating ? <span className="ml-1 font-mono text-xs text-signal">{p.rating.toFixed(1)}</span> : null}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function CoachCard({ coach, team, accent }: { coach: CoachInfo | null; team: string; accent: "pitch" | "clay" }) {
   if (!coach) {

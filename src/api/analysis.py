@@ -42,6 +42,20 @@ def load_coaches():
         return {}
 
 
+def load_lineups():
+    """Charge data/lineups.json → dict {clé_match: {home, away}}. {} si absent."""
+    import json
+    fpath = os.path.join(PROJECT_ROOT, "data/lineups.json")
+    if not os.path.exists(fpath):
+        return {}
+    try:
+        with open(fpath, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        return {k: v for k, v in raw.items() if not k.startswith("_")}
+    except Exception:
+        return {}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # FORME RÉCENTE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -221,7 +235,7 @@ def _match_meta(home, away, date):
 # ─────────────────────────────────────────────────────────────────────────────
 # PHYSIONOMIE & LECTURE TACTIQUE
 # ─────────────────────────────────────────────────────────────────────────────
-def match_dynamics(home, away, neutral, strength, is_ko):
+def match_dynamics(home, away, neutral, strength, is_ko, lam_mult=1.0, mu_mult=1.0):
     """
     Dérive la physionomie probable du match depuis la distribution des scores,
     et une lecture tactique depuis les profils offensifs/défensifs.
@@ -231,6 +245,8 @@ def match_dynamics(home, away, neutral, strength, is_ko):
     lam, mu = dc.predict_lambdas(home, away, neutral, tp, gamma)
     if lam is None:
         return None
+    lam *= lam_mult
+    mu  *= mu_mult
 
     mat = dc.score_matrix(lam, mu, rho, max_goals=10)
     n = mat.shape[0]
@@ -338,7 +354,12 @@ def match_dynamics(home, away, neutral, strength, is_ko):
 # DOSSIER COMPLET
 # ─────────────────────────────────────────────────────────────────────────────
 def match_dossier(home, away, neutral=True, match_date=None):
-    pred = service.predict(home, away, neutral)
+    # ── Compositions (data/lineups.json) : applique l'effet aux xG ──
+    lineup_effect = _compute_lineup_effect(home, away)
+    lam_mult = lineup_effect["lam_mult"]
+    mu_mult = lineup_effect["mu_mult"]
+
+    pred = service.predict(home, away, neutral, lam_mult=lam_mult, mu_mult=mu_mult)
     if pred is None:
         return None
 
@@ -366,7 +387,8 @@ def match_dossier(home, away, neutral=True, match_date=None):
     players_h = th.get("key_players", [])
     players_a = ta.get("key_players", [])
     meta = _match_meta(home, away, match_date)
-    dynamics = match_dynamics(home, away, neutral, strength, meta["is_knockout"])
+    dynamics = match_dynamics(home, away, neutral, strength, meta["is_knockout"],
+                              lam_mult=lam_mult, mu_mult=mu_mult)
 
     # Sélectionneurs (contexte éditorial)
     coaches_map = load_coaches()
@@ -377,11 +399,13 @@ def match_dossier(home, away, neutral=True, match_date=None):
         players_h, players_a, meta["is_knockout"],
     )
     storylines += _coach_storylines(home, away, coaches)
-    # Choc de styles dans la lecture tactique
+    # Choc de styles + effet compo dans la lecture tactique
     if dynamics is not None:
         clash = _style_clash(home, away, coaches)
         if clash:
             dynamics["tactical_read"].insert(0, clash)
+        for n in lineup_effect["notes"]:
+            dynamics["tactical_read"].append(n)
 
     return {
         "fixture": {
@@ -397,8 +421,45 @@ def match_dossier(home, away, neutral=True, match_date=None):
         "head_to_head": h2h,
         "key_players": {"home": players_h, "away": players_a},
         "coaches": coaches,
+        "lineups": lineup_effect["display"],
         "storylines": storylines,
     }
+
+
+def _compute_lineup_effect(home, away):
+    """
+    Cherche la compo du match dans data/lineups.json et calcule son effet.
+    Robuste : formation seule si pas de notes. Renvoie multiplicateurs +
+    données d'affichage + notes.
+    """
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
+    import lineup_strength as ls
+
+    empty = {"lam_mult": 1.0, "mu_mult": 1.0, "notes": [], "display": None}
+    lineups = load_lineups()
+    entry = lineups.get(f"{home} vs {away}")
+    if not entry or "home" not in entry or "away" not in entry:
+        return empty
+
+    try:
+        eff = ls.match_lineup_adjustment(entry["home"], entry["away"])
+    except Exception:
+        return empty
+
+    display = {
+        "home": {"formation": entry["home"].get("formation"),
+                 "xi": entry["home"].get("xi", [])},
+        "away": {"formation": entry["away"].get("formation"),
+                 "xi": entry["away"].get("xi", [])},
+    }
+    notes = [n for n in eff.get("notes", []) if "couverture notes" not in n]
+    if abs(eff["lam_mult"] - 1) < 0.005 and abs(eff["mu_mult"] - 1) < 0.005:
+        notes.append("Compositions prises en compte : dispositifs équilibrés, xG inchangés (ajoute les notes joueurs pour affiner).")
+    else:
+        notes.append("Prédiction ajustée selon les compositions alignées.")
+    return {"lam_mult": eff["lam_mult"], "mu_mult": eff["mu_mult"],
+            "notes": notes, "display": display}
 
 
 def _coach_storylines(home, away, coaches):
