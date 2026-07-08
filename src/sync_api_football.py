@@ -39,6 +39,17 @@ DB_PATH = os.path.join(PROJECT_ROOT, "data/db/foot_stats.db")
 MAPPING_PATH = os.path.join(PROJECT_ROOT, "data/team_mapping.json")
 REFS_PATH = os.path.join(PROJECT_ROOT, "data/team_refs.json")
 LINEUPS_PATH = os.path.join(PROJECT_ROOT, "data/lineups.json")
+FIXTURES_PATH = os.path.join(PROJECT_ROOT, "data/fixtures.json")
+
+# Traduction des tours (l'API renvoie l'anglais)
+ROUND_FR = {
+    "Round of 32": "16es de finale",
+    "Round of 16": "8es de finale",
+    "Quarter-finals": "Quarts de finale",
+    "Semi-finals": "Demi-finales",
+    "3rd Place Final": "Match pour la 3e place",
+    "Final": "Finale",
+}
 
 # Normalisation des positions vers G/D/M/F
 POS_MAP = {
@@ -301,6 +312,64 @@ def cmd_lineup(args):
     print("   Relance l'API du dossier (sudo systemctl restart footstats-api) et ouvre le match.")
 
 
+def cmd_fixtures(args):
+    """
+    Récupère les prochains matchs programmés de la ligue depuis l'API et
+    remplit data/fixtures.json (noms traduits vers ceux du modèle).
+    Remplace la saisie manuelle — à lancer 1 fois/jour (ou en cron).
+    """
+    from datetime import date, timedelta
+    d_from = str(date.today())
+    d_to = str(date.today() + timedelta(days=int(args.days)))
+    resp = _get("/fixtures", {"league": args.league, "season": args.season,
+                              "from": d_from, "to": d_to,
+                              "timezone": args.timezone})
+    if not resp:
+        print("Aucun match renvoyé sur la fenêtre demandée.")
+        return
+
+    # API name → nom du modèle : via mapping puis normalisation
+    mapping = _load_json(MAPPING_PATH, {})
+    api_to_model = {_norm(v["api_name"]): k for k, v in mapping.items()}
+    conn = sqlite3.connect(DB_PATH)
+    model_names = {_norm(r[0]): r[0] for r in conn.execute("SELECT team FROM dc_team_params")}
+    conn.close()
+
+    def to_model(api_name):
+        n = _norm(api_name)
+        return api_to_model.get(n) or model_names.get(n)
+
+    out, skipped = [], []
+    for m in resp:
+        status = (m.get("fixture", {}).get("status", {}) or {}).get("short", "")
+        if status not in ("NS", "TBD"):   # uniquement les matchs pas encore joués
+            continue
+        h_api = m["teams"]["home"]["name"]
+        a_api = m["teams"]["away"]["name"]
+        h, a = to_model(h_api), to_model(a_api)
+        if not h or not a:
+            skipped.append(f"{h_api} vs {a_api}")
+            continue
+        raw_date = m["fixture"]["date"]            # ex. 2026-07-09T22:00:00+02:00
+        date_str = raw_date[:16].replace("T", " ")
+        rnd = (m.get("league", {}) or {}).get("round", "")
+        out.append({"date": date_str, "home": h, "away": a,
+                    "stage": ROUND_FR.get(rnd, rnd) or None})
+
+    out.sort(key=lambda x: x["date"])
+    doc = _load_json(FIXTURES_PATH, {})
+    payload = {"_doc": doc.get("_doc", "Rempli par sync_api_football.py fixtures."),
+               "fixtures": out}
+    _save_json(FIXTURES_PATH, payload)
+    print(f"💾 {len(out)} match(s) écrits dans {FIXTURES_PATH} (fenêtre {d_from} → {d_to}).")
+    for f in out:
+        print(f"   {f['date']}  {f['home']} vs {f['away']}  [{f.get('stage')}]")
+    if skipped:
+        print(f"⚠️  {len(skipped)} match(s) ignorés (équipes non mappées) : {', '.join(skipped[:5])}")
+        print("   → complète data/team_mapping.json puis relance.")
+    print("   Relance l'API du dossier : sudo systemctl restart footstats-api")
+
+
 def _best_match(model_name, lineups):
     for lu in lineups:
         if _norm(model_name) in _norm(lu["team"]) or _norm(lu["team"]) in _norm(model_name):
@@ -318,6 +387,12 @@ def main():
         p.add_argument("--league", default="1")
         p.add_argument("--season", default="2026")
 
+    pf = sub.add_parser("fixtures")
+    pf.add_argument("--league", default="1")
+    pf.add_argument("--season", default="2026")
+    pf.add_argument("--days", default="10", help="Fenêtre en jours (défaut 10)")
+    pf.add_argument("--timezone", default="Europe/Paris")
+
     pl = sub.add_parser("lineup")
     pl.add_argument("--home", required=True)
     pl.add_argument("--away", required=True)
@@ -327,7 +402,8 @@ def main():
     pl.add_argument("--season", default="2026")
 
     args = parser.parse_args()
-    {"map": cmd_map, "ratings": cmd_ratings, "lineup": cmd_lineup}[args.cmd](args)
+    {"map": cmd_map, "ratings": cmd_ratings, "lineup": cmd_lineup,
+     "fixtures": cmd_fixtures}[args.cmd](args)
 
 
 if __name__ == "__main__":

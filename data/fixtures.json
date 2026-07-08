@@ -1,6 +1,29 @@
 {
-  "_doc": "Matchs à venir définis manuellement (fiable même si l'API planning est indisponible). Fusionné avec les matchs 'scheduled' de cdm_2026. Noms d'équipes EXACTS du modèle. Édite/complète le tableau au fil du tournoi.",
+  "_doc": "Matchs à venir. Rempli automatiquement par 'python src/sync_api_football.py fixtures' (ou à la main). Fusionné avec les matchs 'scheduled' de cdm_2026. Noms d'équipes EXACTS du modèle.",
   "fixtures": [
-    { "date": "2026-07-04 19:00", "home": "Canada", "away": "Morocco", "stage": "8es de finale" }
+    {
+      "date": "2026-07-09 22:00",
+      "home": "France",
+      "away": "Morocco",
+      "stage": "Quarts de finale"
+    },
+    {
+      "date": "2026-07-10 21:00",
+      "home": "Spain",
+      "away": "Belgium",
+      "stage": "Quarts de finale"
+    },
+    {
+      "date": "2026-07-11 23:00",
+      "home": "Norway",
+      "away": "England",
+      "stage": "Quarts de finale"
+    },
+    {
+      "date": "2026-07-12 03:00",
+      "home": "Argentina",
+      "away": "Switzerland",
+      "stage": "Quarts de finale"
+    }
   ]
 }
