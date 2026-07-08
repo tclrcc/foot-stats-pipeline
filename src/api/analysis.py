@@ -356,12 +356,25 @@ def match_dynamics(home, away, neutral, strength, is_ko, lam_mult=1.0, mu_mult=1
 def match_dossier(home, away, neutral=True, match_date=None):
     # ── Compositions (data/lineups.json) : applique l'effet aux xG ──
     lineup_effect = _compute_lineup_effect(home, away)
-    lam_mult = lineup_effect["lam_mult"]
-    mu_mult = lineup_effect["mu_mult"]
+    lineup_active = lineup_effect["display"] is not None
+
+    # ── Absents (data/absences.json) : impact offensif N4 si pas de compo ──
+    absence_effect = _compute_absence_effect(home, away, lineup_active)
+
+    lam_mult = lineup_effect["lam_mult"] * absence_effect["lam_mult"]
+    mu_mult = lineup_effect["mu_mult"] * absence_effect["mu_mult"]
 
     pred = service.predict(home, away, neutral, lam_mult=lam_mult, mu_mult=mu_mult)
     if pred is None:
         return None
+    # Méthode explicite selon les sources d'ajustement réellement actives
+    tags = []
+    if lineup_active:
+        tags.append("compo")
+    if absence_effect["display"] is not None and not lineup_active and \
+       (abs(absence_effect["lam_mult"] - 1) > 0.005 or abs(absence_effect["mu_mult"] - 1) > 0.005):
+        tags.append("absences")
+    pred["method"] = "dixon_coles" + ("+" + "+".join(tags) if tags else "")
 
     th = service.get_team(home) or {}
     ta = service.get_team(away) or {}
@@ -399,12 +412,15 @@ def match_dossier(home, away, neutral=True, match_date=None):
         players_h, players_a, meta["is_knockout"],
     )
     storylines += _coach_storylines(home, away, coaches)
-    # Choc de styles + effet compo dans la lecture tactique
+    storylines += absence_effect["storylines"]
+    # Choc de styles + effet compo/absences dans la lecture tactique
     if dynamics is not None:
         clash = _style_clash(home, away, coaches)
         if clash:
             dynamics["tactical_read"].insert(0, clash)
         for n in lineup_effect["notes"]:
+            dynamics["tactical_read"].append(n)
+        for n in absence_effect["notes"]:
             dynamics["tactical_read"].append(n)
 
     return {
@@ -422,8 +438,69 @@ def match_dossier(home, away, neutral=True, match_date=None):
         "key_players": {"home": players_h, "away": players_a},
         "coaches": coaches,
         "lineups": lineup_effect["display"],
+        "absences": absence_effect["display"],
         "storylines": storylines,
     }
+
+
+def _compute_absence_effect(home, away, lineup_active):
+    """
+    Charge les absents (data/absences.json, rempli à la main ou par la
+    commande 'injuries') et calcule l'impact offensif via le Niveau 4.
+    Si la compo officielle du match est déjà connue (lineup_active), les
+    absences restent affichées mais ne modifient plus les xG — la compo
+    alignée est la vérité terrain (évite le double comptage).
+    """
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
+    import squad_impact as si
+    import json as _json
+
+    empty = {"lam_mult": 1.0, "mu_mult": 1.0, "display": None, "notes": [], "storylines": []}
+    absences = si.load_absences()
+    if not absences.get(home) and not absences.get(away):
+        return empty
+
+    # Détail (motifs) écrit par la commande injuries — clé _ ignorée par N4
+    detail = {}
+    if os.path.exists(si.ABSENCES_FILE):
+        try:
+            with open(si.ABSENCES_FILE, "r", encoding="utf-8") as f:
+                detail = _json.load(f).get("_detail", {})
+        except Exception:
+            detail = {}
+
+    depth = si.load_scorer_depth()
+    adj_h = si.compute_attack_adjustment(home, absences.get(home, []), depth)
+    adj_a = si.compute_attack_adjustment(away, absences.get(away, []), depth)
+
+    def side_display(team, adj):
+        reasons = {d["name"]: d.get("reason") for d in detail.get(team, [])}
+        deps = {p: dep for p, dep, _, _ in adj["detail"]}
+        out = []
+        for p in absences.get(team, []):
+            out.append({"name": p, "reason": reasons.get(p) or None,
+                        "dependency_pct": round(deps[p], 1) if p in deps else None})
+        return out
+
+    display = {"home": side_display(home, adj_h), "away": side_display(away, adj_a)}
+
+    notes, stories = [], []
+    for team, adj in ((home, adj_h), (away, adj_a)):
+        if adj["total_impact"] > 0.005:
+            pct = adj["total_impact"] * 100
+            if lineup_active:
+                notes.append(f"{team} privé de {', '.join(adj['matched_absents'])} — déjà reflété dans la compo alignée.")
+            else:
+                notes.append(f"{team} : potentiel offensif réduit d'environ {pct:.0f}% par les forfaits ({', '.join(adj['matched_absents'])}).")
+        for p, dep, _, _ in adj["detail"]:
+            if dep >= 15:
+                stories.append(f"Coup dur pour {team} : forfait de {p}, son buteur à {dep:.0f}% de dépendance.")
+
+    lam_mult = 1.0 if lineup_active else adj_h["multiplier"]
+    mu_mult = 1.0 if lineup_active else adj_a["multiplier"]
+    return {"lam_mult": lam_mult, "mu_mult": mu_mult,
+            "display": display, "notes": notes, "storylines": stories}
 
 
 def _compute_lineup_effect(home, away):

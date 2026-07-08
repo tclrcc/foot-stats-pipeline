@@ -130,4 +130,5 @@ class MatchDossier(BaseModel):
     key_players: dict
     coaches: Optional[dict] = None
     lineups: Optional[dict] = None
+    absences: Optional[dict] = None
     storylines: List[str]

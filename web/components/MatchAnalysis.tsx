@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { MatchDossier, MatchDynamics, TeamRating, TeamFormData, HeadToHead, StrengthSide, KeyPlayer, CoachInfo, MatchLineups } from "@/lib/api";
+import type { MatchDossier, MatchDynamics, TeamRating, TeamFormData, HeadToHead, StrengthSide, KeyPlayer, CoachInfo, MatchLineups, MatchAbsences, AbsentPlayer } from "@/lib/api";
 import { ProbBars, DuoBar } from "./ProbBars";
 import { ScoreHeatmap } from "./ScoreHeatmap";
 
@@ -119,6 +119,16 @@ function Dossier({ d }: { d: MatchDossier }) {
         </Panel>
       )}
 
+      {/* Infirmerie & suspensions */}
+      {d.absences && (d.absences.home?.length || d.absences.away?.length) ? (
+        <Panel title="Infirmerie & suspensions">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <AbsencesColumn list={d.absences.home} team={f.home_team} accent="pitch" />
+            <AbsencesColumn list={d.absences.away} team={f.away_team} accent="clay" />
+          </div>
+        </Panel>
+      ) : null}
+
       {/* Compositions */}
       {d.lineups && (d.lineups.home?.xi?.length || d.lineups.away?.xi?.length) ? (
         <Panel title="Compositions">
@@ -187,6 +197,35 @@ function Dossier({ d }: { d: MatchDossier }) {
 }
 
 // ─── Sous-composants ───
+
+function AbsencesColumn({ list, team, accent }: { list: AbsentPlayer[]; team: string; accent: "pitch" | "clay" }) {
+  return (
+    <div className="rounded-md border border-line bg-ink/40 p-4">
+      <div className={`mb-2 font-display text-lg font-semibold text-${accent}`}>{team}</div>
+      {!list || list.length === 0 ? (
+        <p className="text-sm text-mist">Aucun forfait déclaré.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {list.map((p, i) => (
+            <div key={i} className="flex items-center justify-between border-b border-line/40 py-1 text-sm">
+              <span className="text-chalk">{p.name}</span>
+              <span className="flex items-center gap-2">
+                {p.reason && (
+                  <span className="rounded border border-clay/40 px-2 py-0.5 text-xs text-clay">{p.reason}</span>
+                )}
+                {p.dependency_pct != null && (
+                  <span className="font-mono text-xs tabular text-signal" title="Part des buts de l'équipe">
+                    {p.dependency_pct.toFixed(0)}%
+                  </span>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LineupColumn({ side, team, accent }: { side: MatchLineups["home"]; team: string; accent: "pitch" | "clay" }) {
   const lines: { label: string; codes: string[] }[] = [

@@ -118,6 +118,15 @@ export interface MatchLineups {
   home: { formation?: string; xi: LineupPlayer[] };
   away: { formation?: string; xi: LineupPlayer[] };
 }
+export interface AbsentPlayer {
+  name: string;
+  reason: string | null;
+  dependency_pct: number | null;
+}
+export interface MatchAbsences {
+  home: AbsentPlayer[];
+  away: AbsentPlayer[];
+}
 export interface MatchDossier {
   fixture: {
     home_team: string; away_team: string; neutral: boolean;
@@ -132,6 +141,7 @@ export interface MatchDossier {
   key_players: { home: KeyPlayer[]; away: KeyPlayer[] };
   coaches: { home: CoachInfo | null; away: CoachInfo | null } | null;
   lineups: MatchLineups | null;
+  absences: MatchAbsences | null;
   storylines: string[];
 }
 

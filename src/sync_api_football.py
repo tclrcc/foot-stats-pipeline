@@ -370,6 +370,98 @@ def cmd_fixtures(args):
     print("   Relance l'API du dossier : sudo systemctl restart footstats-api")
 
 
+ABSENCES_PATH = os.path.join(PROJECT_ROOT, "data/absences.json")
+
+# Traduction légère des motifs d'absence les plus courants
+REASON_FR = {
+    "Suspended": "Suspendu", "Red Card": "Carton rouge",
+    "Yellow Cards": "Accumulation de cartons", "Knee Injury": "Blessure au genou",
+    "Ankle Injury": "Blessure à la cheville", "Muscle Injury": "Blessure musculaire",
+    "Thigh Injury": "Blessure à la cuisse", "Hamstring Injury": "Ischio-jambiers",
+    "Calf Injury": "Blessure au mollet", "Groin Injury": "Blessure à l'aine",
+    "Illness": "Malade", "Shoulder Injury": "Blessure à l'épaule",
+    "Back Injury": "Blessure au dos", "Broken ankle": "Cheville cassée",
+}
+
+
+def cmd_injuries(args):
+    """
+    Récupère blessés/suspendus pour les matchs de data/fixtures.json via
+    /injuries, et écrit data/absences.json :
+      - listes par équipe (format Niveau 4 → impact xG automatique)
+      - "_detail" par équipe avec motifs (affichage dossier)
+    Les noms API sont rapprochés de team_scorer_depth (accents/initiales)
+    pour que l'impact offensif s'applique.
+    """
+    fx = _load_json(FIXTURES_PATH, {})
+    fixtures = fx.get("fixtures", [])
+    if not fixtures:
+        print("⚠️  data/fixtures.json vide — lance d'abord la commande 'fixtures'.")
+        return
+    dates = sorted({f["date"][:10] for f in fixtures if f.get("date")})
+    our_teams = {f["home"] for f in fixtures} | {f["away"] for f in fixtures}
+
+    # API name → nom modèle
+    mapping = _load_json(MAPPING_PATH, {})
+    api_to_model = {_norm(v["api_name"]): k for k, v in mapping.items()}
+    conn = sqlite3.connect(DB_PATH)
+    model_names = {_norm(r[0]): r[0] for r in conn.execute("SELECT team FROM dc_team_params")}
+    # Buteurs référencés (jointure des noms pour l'impact N4)
+    depth = {}
+    for team, scorer in conn.execute("SELECT team, scorer FROM team_scorer_depth"):
+        depth.setdefault(team, []).append(scorer)
+    conn.close()
+
+    def to_model(api_name):
+        n = _norm(api_name)
+        return api_to_model.get(n) or model_names.get(n)
+
+    def match_scorer(team, api_player):
+        """Rapproche un nom API du nom exact de team_scorer_depth (nom de famille)."""
+        cands = depth.get(team, [])
+        n_api = _norm(api_player)
+        for c in cands:
+            if _norm(c) == n_api:
+                return c
+        last = n_api.split()[-1] if n_api.split() else ""
+        hits = [c for c in cands if _norm(c).split()[-1] == last]
+        return hits[0] if len(hits) == 1 else None
+
+    absents, detail = {}, {}
+    for d in dates:
+        resp = _get("/injuries", {"league": args.league, "season": args.season, "date": d})
+        for item in resp:
+            t_model = to_model(item["team"]["name"])
+            if not t_model or t_model not in our_teams:
+                continue
+            p_name = item["player"]["name"]
+            reason = item["player"].get("reason") or ""
+            typ = item["player"].get("type") or ""
+            matched = match_scorer(t_model, p_name)
+            store_name = matched or p_name
+            if store_name not in absents.setdefault(t_model, []):
+                absents[t_model].append(store_name)
+                detail.setdefault(t_model, []).append({
+                    "name": store_name,
+                    "reason": REASON_FR.get(reason, reason),
+                    "type": typ,
+                    "impact_ready": bool(matched),
+                })
+
+    payload = {"_doc": "Rempli par sync_api_football.py injuries (forfaits par équipe, "
+                       "format Niveau 4). _detail = motifs pour l'affichage du dossier."}
+    payload.update(absents)
+    payload["_detail"] = detail
+    _save_json(ABSENCES_PATH, payload)
+    n = sum(len(v) for v in absents.values())
+    print(f"💾 {n} absent(s) écrits dans {ABSENCES_PATH} pour {len(absents)} équipe(s).")
+    for t, players in absents.items():
+        motifs = {p['name']: p['reason'] for p in detail.get(t, [])}
+        print(f"   {t}: " + ", ".join(f"{p} ({motifs.get(p,'?')})" for p in players))
+    if not absents:
+        print("   (aucun forfait déclaré par l'API sur ces dates — normal si tôt dans la semaine)")
+
+
 def _best_match(model_name, lineups):
     for lu in lineups:
         if _norm(model_name) in _norm(lu["team"]) or _norm(lu["team"]) in _norm(model_name):
@@ -393,6 +485,10 @@ def main():
     pf.add_argument("--days", default="10", help="Fenêtre en jours (défaut 10)")
     pf.add_argument("--timezone", default="Europe/Paris")
 
+    pi = sub.add_parser("injuries")
+    pi.add_argument("--league", default="1")
+    pi.add_argument("--season", default="2026")
+
     pl = sub.add_parser("lineup")
     pl.add_argument("--home", required=True)
     pl.add_argument("--away", required=True)
@@ -403,7 +499,7 @@ def main():
 
     args = parser.parse_args()
     {"map": cmd_map, "ratings": cmd_ratings, "lineup": cmd_lineup,
-     "fixtures": cmd_fixtures}[args.cmd](args)
+     "fixtures": cmd_fixtures, "injuries": cmd_injuries}[args.cmd](args)
 
 
 if __name__ == "__main__":
