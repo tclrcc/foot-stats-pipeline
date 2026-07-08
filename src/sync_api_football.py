@@ -372,6 +372,22 @@ def cmd_fixtures(args):
 
 ABSENCES_PATH = os.path.join(PROJECT_ROOT, "data/absences.json")
 
+# IDs API-Football des grands championnats (alias pratiques pour la CLI)
+LEAGUE_ALIASES = {
+    "pl": 39, "premierleague": 39,
+    "liga": 140, "laliga": 140,
+    "seriea": 135,
+    "bundesliga": 78,
+    "ligue1": 61,
+    "cdm": 1, "worldcup": 1,
+}
+BIG5 = [39, 140, 135, 78, 61]
+LEAGUE_NAMES = {39: "Premier League", 140: "La Liga", 135: "Serie A",
+                78: "Bundesliga", 61: "Ligue 1", 1: "World Cup"}
+
+# Statuts de match terminé (temps réglementaire, prolongation, tirs au but)
+FINISHED = {"FT", "AET", "PEN"}
+
 # Traduction légère des motifs d'absence les plus courants
 REASON_FR = {
     "Suspended": "Suspendu", "Red Card": "Carton rouge",
@@ -462,6 +478,89 @@ def cmd_injuries(args):
         print("   (aucun forfait déclaré par l'API sur ces dates — normal si tôt dans la semaine)")
 
 
+def cmd_results(args):
+    """
+    Importe l'historique des résultats de championnats club dans la table
+    club_matches (base SQLite). C'est le corpus d'entraînement du futur
+    modèle Dixon-Coles par ligue.
+
+    Exemples :
+      python src/sync_api_football.py results --leagues big5 --seasons 2021-2025
+      python src/sync_api_football.py results --leagues ligue1 --seasons 2025
+      python src/sync_api_football.py results --leagues 39,61 --seasons 2024,2025
+
+    1 requête par (ligue, saison) — big5 × 5 saisons = 25 requêtes.
+    Réimport sans risque : INSERT OR REPLACE par fixture_id.
+    """
+    # ── Parse des ligues ──
+    leagues = []
+    for tok in str(args.leagues).replace(" ", "").lower().split(","):
+        if tok == "big5":
+            leagues += BIG5
+        elif tok in LEAGUE_ALIASES:
+            leagues.append(LEAGUE_ALIASES[tok])
+        elif tok.isdigit():
+            leagues.append(int(tok))
+        else:
+            print(f"⚠️  Ligue inconnue : '{tok}' (alias : {', '.join(LEAGUE_ALIASES)}, big5, ou id numérique)")
+    leagues = list(dict.fromkeys(leagues))
+    if not leagues:
+        return
+
+    # ── Parse des saisons ("2021-2025" ou "2024,2025") ──
+    seasons = []
+    s = str(args.seasons).replace(" ", "")
+    if "-" in s:
+        a, b = s.split("-", 1)
+        seasons = list(range(int(a), int(b) + 1))
+    else:
+        seasons = [int(x) for x in s.split(",") if x]
+
+    # ── Table ──
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS club_matches (
+            fixture_id INTEGER PRIMARY KEY,
+            league_id INTEGER, league_name TEXT, season INTEGER,
+            date TEXT, round TEXT,
+            home_team TEXT, away_team TEXT,
+            home_score INTEGER, away_score INTEGER,
+            status TEXT
+        )
+    """)
+
+    total = 0
+    for lg in leagues:
+        lg_name = LEAGUE_NAMES.get(lg, str(lg))
+        for season in seasons:
+            resp = _get("/fixtures", {"league": lg, "season": season})
+            n = 0
+            for m in resp:
+                st = (m["fixture"].get("status", {}) or {}).get("short", "")
+                if st not in FINISHED:
+                    continue
+                g = m.get("goals", {}) or {}
+                hs, as_ = g.get("home"), g.get("away")
+                if hs is None or as_ is None:
+                    continue
+                conn.execute("""INSERT OR REPLACE INTO club_matches
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
+                    m["fixture"]["id"], lg, lg_name, season,
+                    str(m["fixture"]["date"])[:10],
+                    (m.get("league", {}) or {}).get("round", ""),
+                    m["teams"]["home"]["name"], m["teams"]["away"]["name"],
+                    int(hs), int(as_), st,
+                ))
+                n += 1
+            conn.commit()
+            total += n
+            print(f"   {lg_name} {season}-{str(season+1)[-2:]} : {n} matchs terminés importés")
+            time.sleep(0.4)  # courtoisie quota/minute
+    conn.close()
+    print(f"\n💾 {total} matchs dans club_matches (base {os.path.basename(DB_PATH)}).")
+    print("   Vérifie : sqlite3 data/db/foot_stats.db \"SELECT league_name, season, COUNT(*) FROM club_matches GROUP BY 1,2;\"")
+
+
 def _best_match(model_name, lineups):
     for lu in lineups:
         if _norm(model_name) in _norm(lu["team"]) or _norm(lu["team"]) in _norm(model_name):
@@ -489,6 +588,12 @@ def main():
     pi.add_argument("--league", default="1")
     pi.add_argument("--season", default="2026")
 
+    pr = sub.add_parser("results")
+    pr.add_argument("--leagues", default="big5",
+                    help="big5, alias (ligue1, pl, liga, seriea, bundesliga) ou ids séparés par des virgules")
+    pr.add_argument("--seasons", default="2021-2025",
+                    help="Plage '2021-2025' ou liste '2024,2025' (2025 = saison 2025-26)")
+
     pl = sub.add_parser("lineup")
     pl.add_argument("--home", required=True)
     pl.add_argument("--away", required=True)
@@ -499,7 +604,8 @@ def main():
 
     args = parser.parse_args()
     {"map": cmd_map, "ratings": cmd_ratings, "lineup": cmd_lineup,
-     "fixtures": cmd_fixtures, "injuries": cmd_injuries}[args.cmd](args)
+     "fixtures": cmd_fixtures, "injuries": cmd_injuries,
+     "results": cmd_results}[args.cmd](args)
 
 
 if __name__ == "__main__":
