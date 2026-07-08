@@ -76,6 +76,7 @@ def get_match_lineups(fixture_id):
         # module lineup_strength du Niveau 7.
         starters_detailed = [
             {
+                "id":   player['player'].get('id'),
                 "name": player['player']['name'],
                 "pos":  player['player'].get('pos'),
                 "grid": player['player'].get('grid'),
