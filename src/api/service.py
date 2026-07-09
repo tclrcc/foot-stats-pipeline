@@ -362,7 +362,7 @@ def club_results(league_id, season, team=None, limit=50):
     if not _club_table_exists(conn):
         conn.close()
         return None
-    q = """SELECT date, round, home_team, away_team, home_score, away_score
+    q = """SELECT fixture_id, date, round, home_team, away_team, home_score, away_score
            FROM club_matches WHERE league_id=? AND season=?"""
     params = [league_id, season]
     if team:
@@ -373,11 +373,34 @@ def club_results(league_id, season, team=None, limit=50):
     rows = conn.execute(q, params).fetchall()
     conn.close()
     out = []
-    for date, rnd, h, a, hs, as_ in rows:
+    for fid, date, rnd, h, a, hs, as_ in rows:
         j = None
         if rnd and "- " in rnd:
             tail = rnd.rsplit("- ", 1)[-1].strip()
             j = f"J{tail}" if tail.isdigit() else rnd
-        out.append({"date": date, "round": j or rnd, "home_team": h,
-                    "away_team": a, "home_score": hs, "away_score": as_})
+        out.append({"fixture_id": fid, "date": date, "round": j or rnd,
+                    "home_team": h, "away_team": a,
+                    "home_score": hs, "away_score": as_})
     return out
+
+
+def club_top_players(league_id, season, category="scorers", limit=10):
+    """Classement des buteurs ou passeurs (table club_top_players)."""
+    conn = _connect()
+    try:
+        rows = conn.execute("""
+            SELECT rank, player_name, team_name, appearances, minutes,
+                   goals, assists, penalties, rating
+            FROM club_top_players
+            WHERE league_id=? AND season=? AND category=?
+            ORDER BY rank ASC LIMIT ?
+        """, (league_id, season, category, limit)).fetchall()
+    except Exception:
+        conn.close()
+        return None
+    conn.close()
+    if not rows:
+        return None
+    return [{"rank": r[0], "player": r[1], "team": r[2], "appearances": r[3],
+             "minutes": r[4], "goals": r[5], "assists": r[6],
+             "penalties": r[7], "rating": r[8]} for r in rows]

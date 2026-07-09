@@ -563,6 +563,76 @@ def cmd_results(args):
     print("   Vérifie : sqlite3 data/db/foot_stats.db \"SELECT league_name, season, COUNT(*) FROM club_matches GROUP BY 1,2;\"")
 
 
+def cmd_topplayers(args):
+    """
+    Synchronise les classements de joueurs (buteurs + passeurs) par ligue
+    et saison → table club_top_players. 2 requêtes par (ligue, saison).
+
+      python src/sync_api_football.py topplayers --leagues big5 --seasons 2025
+    """
+    leagues = []
+    for tok in str(args.leagues).replace(" ", "").lower().split(","):
+        if tok == "big5":
+            leagues += BIG5
+        elif tok in LEAGUE_ALIASES:
+            leagues.append(LEAGUE_ALIASES[tok])
+        elif tok.isdigit():
+            leagues.append(int(tok))
+    leagues = list(dict.fromkeys(leagues))
+
+    s = str(args.seasons).replace(" ", "")
+    if "-" in s:
+        a, b = s.split("-", 1)
+        seasons = list(range(int(a), int(b) + 1))
+    else:
+        seasons = [int(x) for x in s.split(",") if x]
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS club_top_players (
+            league_id INTEGER, season INTEGER, category TEXT, rank INTEGER,
+            player_id INTEGER, player_name TEXT, team_name TEXT,
+            appearances INTEGER, minutes INTEGER,
+            goals INTEGER, assists INTEGER, penalties INTEGER, rating REAL,
+            PRIMARY KEY (league_id, season, category, rank)
+        )
+    """)
+
+    endpoints = {"scorers": "/players/topscorers", "assists": "/players/topassists"}
+    for lg in leagues:
+        lg_name = LEAGUE_NAMES.get(lg, str(lg))
+        for season in seasons:
+            for cat, path in endpoints.items():
+                resp = _get(path, {"league": lg, "season": season})
+                if not resp:
+                    print(f"   {lg_name} {season} [{cat}] : aucune donnée")
+                    continue
+                conn.execute("DELETE FROM club_top_players WHERE league_id=? AND season=? AND category=?",
+                             (lg, season, cat))
+                for rank, item in enumerate(resp, 1):
+                    p = item["player"]
+                    st = (item.get("statistics") or [{}])[0]
+                    games = st.get("games", {}) or {}
+                    goals = st.get("goals", {}) or {}
+                    pen = st.get("penalty", {}) or {}
+                    try:
+                        rating = float(games.get("rating")) if games.get("rating") else None
+                    except (TypeError, ValueError):
+                        rating = None
+                    conn.execute("INSERT OR REPLACE INTO club_top_players VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+                        lg, season, cat, rank, p.get("id"), p.get("name"),
+                        (st.get("team", {}) or {}).get("name"),
+                        games.get("appearences"), games.get("minutes"),
+                        goals.get("total") or 0, goals.get("assists") or 0,
+                        pen.get("scored") or 0, rating,
+                    ))
+                conn.commit()
+                print(f"   {lg_name} {season} [{cat}] : {len(resp)} joueurs")
+                time.sleep(0.4)
+    conn.close()
+    print("💾 club_top_players à jour.")
+
+
 def _best_match(model_name, lineups):
     for lu in lineups:
         if _norm(model_name) in _norm(lu["team"]) or _norm(lu["team"]) in _norm(model_name):
@@ -590,6 +660,10 @@ def main():
     pi.add_argument("--league", default="1")
     pi.add_argument("--season", default="2026")
 
+    pt = sub.add_parser("topplayers")
+    pt.add_argument("--leagues", default="big5")
+    pt.add_argument("--seasons", default="2025")
+
     pr = sub.add_parser("results")
     pr.add_argument("--leagues", default="big5",
                     help="big5, alias (ligue1, pl, liga, seriea, bundesliga) ou ids séparés par des virgules")
@@ -607,7 +681,7 @@ def main():
     args = parser.parse_args()
     {"map": cmd_map, "ratings": cmd_ratings, "lineup": cmd_lineup,
      "fixtures": cmd_fixtures, "injuries": cmd_injuries,
-     "results": cmd_results}[args.cmd](args)
+     "results": cmd_results, "topplayers": cmd_topplayers}[args.cmd](args)
 
 
 if __name__ == "__main__":

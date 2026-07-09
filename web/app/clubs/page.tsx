@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { clubs, StandingRow, ClubResult } from "@/lib/api";
+import { clubs, clubsExtra, StandingRow, ClubResult, TopPlayer } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -38,9 +38,11 @@ export default async function ClubsPage({
   const season = Number(searchParams.season) || current.seasons[0].season;
   const team = searchParams.team;
 
-  const [standings, results] = await Promise.all([
+  const [standings, results, scorers, assists] = await Promise.all([
     clubs.standings(current.league_id, season).catch(() => [] as StandingRow[]),
     clubs.results(current.league_id, season, team, team ? 400 : 40).catch(() => [] as ClubResult[]),
+    clubsExtra.topplayers(current.league_id, season, "scorers").catch(() => null),
+    clubsExtra.topplayers(current.league_id, season, "assists").catch(() => null),
   ]);
 
   const base = `/clubs?league=${current.league_id}&season=${season}`;
@@ -180,8 +182,8 @@ export default async function ClubsPage({
             {results.map((m, i) => {
               const homeWin = m.home_score > m.away_score;
               const awayWin = m.away_score > m.home_score;
-              return (
-                <div key={i} className="flex items-center gap-3 rounded-card border border-line bg-slate px-4 py-2.5">
+              const inner = (
+                <>
                   <div className="w-24 shrink-0 text-xs text-mist">
                     {m.round && <div className="font-mono text-signal">{m.round}</div>}
                     {fmtDate(m.date)}
@@ -197,13 +199,70 @@ export default async function ClubsPage({
                       {m.away_team}
                     </span>
                   </div>
+                </>
+              );
+              return m.fixture_id ? (
+                <Link
+                  key={i}
+                  href={`/clubs/match/${m.fixture_id}`}
+                  className="flex items-center gap-3 rounded-card border border-line bg-slate px-4 py-2.5 transition-colors hover:border-mist"
+                >
+                  {inner}
+                </Link>
+              ) : (
+                <div key={i} className="flex items-center gap-3 rounded-card border border-line bg-slate px-4 py-2.5">
+                  {inner}
                 </div>
               );
             })}
           </div>
         </section>
       </div>
+
+      {/* Joueurs : buteurs & passeurs */}
+      {(scorers || assists) && (
+        <div className="mt-10 grid gap-8 lg:grid-cols-2">
+          {scorers && <PlayersCard title="Meilleurs buteurs" rows={scorers} metric="goals" />}
+          {assists && <PlayersCard title="Meilleurs passeurs" rows={assists} metric="assists" />}
+        </div>
+      )}
     </div>
+  );
+}
+
+function PlayersCard({ title, rows, metric }: { title: string; rows: TopPlayer[]; metric: "goals" | "assists" }) {
+  const max = Math.max(...rows.map((r) => r[metric]), 1);
+  return (
+    <section>
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-mist">{title}</h2>
+      <div className="rounded-card border border-line bg-slate p-4">
+        <div className="space-y-2">
+          {rows.map((r) => (
+            <div key={r.rank} className="flex items-center gap-3 text-sm">
+              <span className="w-5 shrink-0 font-mono text-xs tabular text-mist">{r.rank}</span>
+              <div className="w-44 min-w-0 shrink-0">
+                <div className="truncate font-medium text-chalk">{r.player}</div>
+                <div className="truncate text-xs text-mist">{r.team}</div>
+              </div>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
+                <div
+                  className={`h-full rounded-full ${metric === "goals" ? "bg-pitch" : "bg-signal"}`}
+                  style={{ width: `${(r[metric] / max) * 100}%` }}
+                />
+              </div>
+              <span className="w-20 shrink-0 text-right font-mono text-xs tabular text-chalk">
+                {r[metric]}
+                {metric === "goals" && r.penalties > 0 ? <span className="text-mist"> ({r.penalties}p)</span> : null}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-mist">
+          {metric === "goals" ? "Buts (p = penaltys) — " : "Passes décisives — "}
+          top de la ligue sur la saison sélectionnée.
+        </p>
+      </div>
+    </section>
   );
 }
 

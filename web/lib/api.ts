@@ -196,6 +196,7 @@ export interface StandingRow {
   lost: number; gf: number; ga: number; gd: number; points: number; form: string[];
 }
 export interface ClubResult {
+  fixture_id: number | null;
   date: string; round: string | null;
   home_team: string; away_team: string; home_score: number; away_score: number;
 }
@@ -209,4 +210,32 @@ export const clubs = {
       `/clubs/results?league=${league}&season=${season}&limit=${limit}${team ? `&team=${encodeURIComponent(team)}` : ""}`,
       0
     ),
+};
+
+export interface TopPlayer {
+  rank: number; player: string; team: string | null;
+  appearances: number | null; minutes: number | null;
+  goals: number; assists: number; penalties: number; rating: number | null;
+}
+export interface MatchGoal {
+  minute: number | null; extra: number | null; side: "home" | "away" | null;
+  player: string | null; assist?: string | null; detail: string | null;
+}
+export interface MatchDetail {
+  fixture_id: number; date: string; venue: string | null; city: string | null;
+  league_name: string | null; season: number | null; round: string | null;
+  home_team: string; away_team: string;
+  home_score: number | null; away_score: number | null;
+  halftime: { home: number | null; away: number | null };
+  events: { goals: MatchGoal[]; cards: MatchGoal[] };
+  lineups: {
+    home: { team: string; formation: string | null; coach: string | null; xi: { name: string; number: number | null; pos: string | null }[] };
+    away: { team: string; formation: string | null; coach: string | null; xi: { name: string; number: number | null; pos: string | null }[] };
+  } | null;
+}
+
+export const clubsExtra = {
+  topplayers: (league: number, season: number, category: "scorers" | "assists", limit = 10) =>
+    get<TopPlayer[]>(`/clubs/topplayers?league=${league}&season=${season}&category=${category}&limit=${limit}`, 0),
+  matchDetail: (fixtureId: number) => get<MatchDetail>(`/clubs/match/${fixtureId}`, 0),
 };

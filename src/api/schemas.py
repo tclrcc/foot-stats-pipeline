@@ -145,7 +145,20 @@ class StandingRow(BaseModel):
     form: List[str]
 
 
+class TopPlayer(BaseModel):
+    rank: int
+    player: str
+    team: Optional[str] = None
+    appearances: Optional[int] = None
+    minutes: Optional[int] = None
+    goals: int
+    assists: int
+    penalties: int
+    rating: Optional[float] = None
+
+
 class ClubResult(BaseModel):
+    fixture_id: Optional[int] = None
     date: str
     round: Optional[str] = None
     home_team: str

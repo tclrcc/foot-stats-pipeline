@@ -19,8 +19,9 @@ import analysis
 from schemas import (
     TeamRating, TeamDetail, Prediction, ModelInfo,
     ModelPerformance, UpcomingMatch, MatchDossier,
-    ClubLeague, StandingRow, ClubResult,
+    ClubLeague, StandingRow, ClubResult, TopPlayer,
 )
+import match_details
 
 app = FastAPI(
     title="Football Prediction API",
@@ -173,3 +174,37 @@ def get_club_results(
     if res is None:
         raise HTTPException(status_code=404, detail="Table club_matches absente.")
     return res
+
+
+@app.get("/clubs/topplayers", response_model=List[TopPlayer], tags=["clubs"])
+def get_club_top_players(
+    league: int = Query(...),
+    season: int = Query(...),
+    category: str = Query("scorers", pattern="^(scorers|assists)$"),
+    limit: int = Query(10, ge=1, le=20),
+):
+    """Meilleurs buteurs ou passeurs de la ligue."""
+    rows = service.club_top_players(league, season, category, limit)
+    if rows is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Aucun classement joueurs pour cette ligue/saison. Lance "
+                   "'python src/sync_api_football.py topplayers' d'abord.",
+        )
+    return rows
+
+
+@app.get("/clubs/match/{fixture_id}", tags=["clubs"])
+def get_club_match_detail(fixture_id: int):
+    """
+    Résumé d'un match : score, buteurs, cartons rouges, compositions.
+    Servi depuis le cache local ; premier affichage = 1 requête API,
+    puis cache définitif (un match terminé est immuable).
+    """
+    detail = match_details.get_match_detail(fixture_id)
+    if detail is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Match introuvable (id inconnu de l'API, ou clé API absente du .env).",
+        )
+    return detail
