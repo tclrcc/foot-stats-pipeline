@@ -112,6 +112,40 @@ export default async function ClubMatchPage({ params }: { params: { id: string }
         )}
       </div>
 
+      {/* Statistiques du match */}
+      {d.statistics && d.statistics.length > 0 && (
+        <div className="mt-6 rounded-card border border-line bg-slate p-5">
+          <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-mist">Statistiques</h2>
+          {d.best_player && (
+            <p className="mb-4 text-xs text-mist">
+              Homme du match : <span className="font-medium text-signal">{d.best_player.name}</span>
+              {d.best_player.team && <span> ({d.best_player.team})</span>}
+              <span className="font-mono tabular"> — note {d.best_player.rating.toFixed(1)}</span>
+            </p>
+          )}
+          <div className="space-y-3">
+            {d.statistics.map((st) => {
+              const h = parseFloat(String(st.home).replace("%", "")) || 0;
+              const a = parseFloat(String(st.away).replace("%", "")) || 0;
+              const total = h + a || 1;
+              return (
+                <div key={st.label}>
+                  <div className="mb-1 flex justify-between font-mono text-xs tabular">
+                    <span className={h >= a ? "text-pitch" : "text-mist"}>{st.home}</span>
+                    <span className="font-sans text-mist">{st.label}</span>
+                    <span className={a >= h ? "text-clay" : "text-mist"}>{st.away}</span>
+                  </div>
+                  <div className="flex h-1.5 overflow-hidden rounded-full bg-line">
+                    <div style={{ width: `${(h / total) * 100}%`, backgroundColor: "#22C77E" }} />
+                    <div style={{ width: `${(a / total) * 100}%`, backgroundColor: "#FF5A6A" }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Compositions */}
       {d.lineups && (
         <div className="mt-6 rounded-card border border-line bg-slate p-5">
@@ -135,7 +169,16 @@ export default async function ClubMatchPage({ params }: { params: { id: string }
                       <div key={i} className="flex items-center gap-2 border-b border-line/30 py-1 text-sm">
                         <span className="w-7 shrink-0 text-right font-mono text-xs tabular text-mist">{p.number ?? "–"}</span>
                         <span className="text-chalk">{p.name}</span>
-                        {p.pos && <span className="ml-auto font-mono text-xs text-mist">{p.pos}</span>}
+                        <span className="ml-auto flex items-center gap-2">
+                          {p.rating != null && (
+                            <span className={`rounded px-1.5 py-0.5 font-mono text-xs tabular ${
+                              p.rating >= 7.5 ? "bg-pitch/15 text-pitch" : p.rating < 6 ? "bg-clay/15 text-clay" : "bg-line text-chalk"
+                            }`}>
+                              {p.rating.toFixed(1)}
+                            </span>
+                          )}
+                          {p.pos && <span className="font-mono text-xs text-mist">{p.pos}</span>}
+                        </span>
                       </div>
                     ))}
                   </div>

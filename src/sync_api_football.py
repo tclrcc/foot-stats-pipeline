@@ -594,11 +594,19 @@ def cmd_topplayers(args):
             player_id INTEGER, player_name TEXT, team_name TEXT,
             appearances INTEGER, minutes INTEGER,
             goals INTEGER, assists INTEGER, penalties INTEGER, rating REAL,
+            yellow_cards INTEGER, red_cards INTEGER,
             PRIMARY KEY (league_id, season, category, rank)
         )
     """)
+    # Migration douce si la table existait sans les colonnes cartons
+    for col in ("yellow_cards", "red_cards"):
+        try:
+            conn.execute(f"ALTER TABLE club_top_players ADD COLUMN {col} INTEGER")
+        except sqlite3.OperationalError:
+            pass
 
-    endpoints = {"scorers": "/players/topscorers", "assists": "/players/topassists"}
+    endpoints = {"scorers": "/players/topscorers", "assists": "/players/topassists",
+                 "yellowcards": "/players/topyellowcards", "redcards": "/players/topredcards"}
     for lg in leagues:
         lg_name = LEAGUE_NAMES.get(lg, str(lg))
         for season in seasons:
@@ -619,12 +627,18 @@ def cmd_topplayers(args):
                         rating = float(games.get("rating")) if games.get("rating") else None
                     except (TypeError, ValueError):
                         rating = None
-                    conn.execute("INSERT OR REPLACE INTO club_top_players VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+                    cards = st.get("cards", {}) or {}
+                    conn.execute("""INSERT OR REPLACE INTO club_top_players
+                        (league_id, season, category, rank, player_id, player_name,
+                         team_name, appearances, minutes, goals, assists, penalties,
+                         rating, yellow_cards, red_cards)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                         lg, season, cat, rank, p.get("id"), p.get("name"),
                         (st.get("team", {}) or {}).get("name"),
                         games.get("appearences"), games.get("minutes"),
                         goals.get("total") or 0, goals.get("assists") or 0,
                         pen.get("scored") or 0, rating,
+                        cards.get("yellow") or 0, cards.get("red") or 0,
                     ))
                 conn.commit()
                 print(f"   {lg_name} {season} [{cat}] : {len(resp)} joueurs")

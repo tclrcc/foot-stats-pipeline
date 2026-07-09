@@ -180,7 +180,7 @@ def get_club_results(
 def get_club_top_players(
     league: int = Query(...),
     season: int = Query(...),
-    category: str = Query("scorers", pattern="^(scorers|assists)$"),
+    category: str = Query("scorers", pattern="^(scorers|assists|yellowcards|redcards)$"),
     limit: int = Query(10, ge=1, le=20),
 ):
     """Meilleurs buteurs ou passeurs de la ligue."""

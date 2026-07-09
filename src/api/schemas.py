@@ -155,6 +155,8 @@ class TopPlayer(BaseModel):
     assists: int
     penalties: int
     rating: Optional[float] = None
+    yellow_cards: Optional[int] = None
+    red_cards: Optional[int] = None
 
 
 class ClubResult(BaseModel):

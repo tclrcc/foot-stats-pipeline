@@ -216,6 +216,7 @@ export interface TopPlayer {
   rank: number; player: string; team: string | null;
   appearances: number | null; minutes: number | null;
   goals: number; assists: number; penalties: number; rating: number | null;
+  yellow_cards: number | null; red_cards: number | null;
 }
 export interface MatchGoal {
   minute: number | null; extra: number | null; side: "home" | "away" | null;
@@ -229,13 +230,15 @@ export interface MatchDetail {
   halftime: { home: number | null; away: number | null };
   events: { goals: MatchGoal[]; cards: MatchGoal[] };
   lineups: {
-    home: { team: string; formation: string | null; coach: string | null; xi: { name: string; number: number | null; pos: string | null }[] };
-    away: { team: string; formation: string | null; coach: string | null; xi: { name: string; number: number | null; pos: string | null }[] };
+    home: { team: string; formation: string | null; coach: string | null; xi: { name: string; number: number | null; pos: string | null; rating: number | null }[] };
+    away: { team: string; formation: string | null; coach: string | null; xi: { name: string; number: number | null; pos: string | null; rating: number | null }[] };
   } | null;
+  statistics: { label: string; home: string; away: string }[] | null;
+  best_player: { name: string; team: string | null; rating: number } | null;
 }
 
 export const clubsExtra = {
-  topplayers: (league: number, season: number, category: "scorers" | "assists", limit = 10) =>
+  topplayers: (league: number, season: number, category: "scorers" | "assists" | "yellowcards" | "redcards", limit = 10) =>
     get<TopPlayer[]>(`/clubs/topplayers?league=${league}&season=${season}&category=${category}&limit=${limit}`, 0),
   matchDetail: (fixtureId: number) => get<MatchDetail>(`/clubs/match/${fixtureId}`, 0),
 };

@@ -75,6 +75,67 @@ def get_match_detail(fixture_id):
     return _parse(raw)
 
 
+# Statistiques d'équipe : sélection ordonnée + libellés français
+STAT_LABELS = [
+    ("Ball Possession", "Possession"),
+    ("expected_goals", "xG (buts attendus)"),
+    ("Total Shots", "Tirs"),
+    ("Shots on Goal", "Tirs cadrés"),
+    ("Corner Kicks", "Corners"),
+    ("Fouls", "Fautes"),
+    ("Offsides", "Hors-jeu"),
+    ("Yellow Cards", "Cartons jaunes"),
+    ("Red Cards", "Cartons rouges"),
+    ("Goalkeeper Saves", "Arrêts du gardien"),
+    ("Passes %", "Précision des passes"),
+]
+
+
+def _parse_statistics(m, home_name):
+    """[{label, home, away}] depuis l'objet statistics embarqué (ou None)."""
+    stats_raw = m.get("statistics") or []
+    if len(stats_raw) != 2:
+        return None
+    by_side = {}
+    for block in stats_raw:
+        side = "home" if (block.get("team") or {}).get("name") == home_name else "away"
+        by_side[side] = {s.get("type"): s.get("value")
+                         for s in (block.get("statistics") or [])}
+    out = []
+    for api_key, label in STAT_LABELS:
+        h = by_side.get("home", {}).get(api_key)
+        a = by_side.get("away", {}).get(api_key)
+        if h is None and a is None:
+            continue
+        out.append({"label": label,
+                    "home": str(h) if h is not None else "0",
+                    "away": str(a) if a is not None else "0"})
+    return out or None
+
+
+def _player_ratings(m):
+    """Notes du match par joueur : {player_id: rating} + meilleur joueur."""
+    ratings = {}
+    best = None
+    for block in m.get("players") or []:
+        team_name = (block.get("team") or {}).get("name")
+        for item in block.get("players") or []:
+            p = item.get("player") or {}
+            st = (item.get("statistics") or [{}])[0]
+            r = (st.get("games") or {}).get("rating")
+            try:
+                r = float(r) if r is not None else None
+            except (TypeError, ValueError):
+                r = None
+            if r is None:
+                continue
+            if p.get("id") is not None:
+                ratings[p["id"]] = r
+            if best is None or r > best["rating"]:
+                best = {"name": p.get("name"), "team": team_name, "rating": r}
+    return ratings, best
+
+
 def _parse(m):
     """Réduit la réponse API au strict utile pour la page de résumé."""
     teams = m.get("teams", {})
@@ -115,6 +176,7 @@ def _parse(m):
 
     lineups_out = None
     lus = m.get("lineups", []) or []
+    ratings, best_player = _player_ratings(m)
     if len(lus) == 2:
         def to_side(lu):
             return {
@@ -126,6 +188,7 @@ def _parse(m):
                         "name": (p.get("player") or {}).get("name"),
                         "number": (p.get("player") or {}).get("number"),
                         "pos": (p.get("player") or {}).get("pos"),
+                        "rating": ratings.get((p.get("player") or {}).get("id")),
                     }
                     for p in lu.get("startXI", []) or []
                 ],
@@ -150,4 +213,6 @@ def _parse(m):
         "halftime": {"home": ht.get("home"), "away": ht.get("away")},
         "events": events_out,
         "lineups": lineups_out,
+        "statistics": _parse_statistics(m, home_name),
+        "best_player": best_player,
     }

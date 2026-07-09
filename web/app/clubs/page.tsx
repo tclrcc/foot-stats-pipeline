@@ -38,11 +38,12 @@ export default async function ClubsPage({
   const season = Number(searchParams.season) || current.seasons[0].season;
   const team = searchParams.team;
 
-  const [standings, results, scorers, assists] = await Promise.all([
+  const [standings, results, scorers, assists, cards] = await Promise.all([
     clubs.standings(current.league_id, season).catch(() => [] as StandingRow[]),
     clubs.results(current.league_id, season, team, team ? 400 : 40).catch(() => [] as ClubResult[]),
     clubsExtra.topplayers(current.league_id, season, "scorers").catch(() => null),
     clubsExtra.topplayers(current.league_id, season, "assists").catch(() => null),
+    clubsExtra.topplayers(current.league_id, season, "yellowcards").catch(() => null),
   ]);
 
   const base = `/clubs?league=${current.league_id}&season=${season}`;
@@ -220,10 +221,11 @@ export default async function ClubsPage({
       </div>
 
       {/* Joueurs : buteurs & passeurs */}
-      {(scorers || assists) && (
-        <div className="mt-10 grid gap-8 lg:grid-cols-2">
+      {(scorers || assists || cards) && (
+        <div className="mt-10 grid gap-8 lg:grid-cols-3">
           {scorers && <PlayersCard title="Meilleurs buteurs" rows={scorers} metric="goals" />}
           {assists && <PlayersCard title="Meilleurs passeurs" rows={assists} metric="assists" />}
+          {cards && <DisciplineCard rows={cards} />}
         </div>
       )}
     </div>
@@ -261,6 +263,38 @@ function PlayersCard({ title, rows, metric }: { title: string; rows: TopPlayer[]
           {metric === "goals" ? "Buts (p = penaltys) — " : "Passes décisives — "}
           top de la ligue sur la saison sélectionnée.
         </p>
+      </div>
+    </section>
+  );
+}
+
+function DisciplineCard({ rows }: { rows: TopPlayer[] }) {
+  return (
+    <section>
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-mist">Discipline</h2>
+      <div className="rounded-card border border-line bg-slate p-4">
+        <div className="space-y-2">
+          {rows.slice(0, 10).map((r) => (
+            <div key={r.rank} className="flex items-center gap-3 text-sm">
+              <span className="w-5 shrink-0 font-mono text-xs tabular text-mist">{r.rank}</span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-chalk">{r.player}</div>
+                <div className="truncate text-xs text-mist">{r.team}</div>
+              </div>
+              <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs tabular">
+                <span className="inline-block h-3.5 w-2.5 rounded-[2px] bg-signal" />
+                <span className="text-chalk">{r.yellow_cards ?? 0}</span>
+                {(r.red_cards ?? 0) > 0 && (
+                  <>
+                    <span className="ml-1 inline-block h-3.5 w-2.5 rounded-[2px] bg-clay" />
+                    <span className="text-chalk">{r.red_cards}</span>
+                  </>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-mist">Cartons jaunes (et rouges) sur la saison.</p>
       </div>
     </section>
   );
