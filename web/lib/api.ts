@@ -187,3 +187,26 @@ export const api = {
 };
 
 export { API_BASE };
+
+// ─── Championnats club ───
+export interface ClubSeason { season: number; matches: number }
+export interface ClubLeague { league_id: number; league_name: string; seasons: ClubSeason[] }
+export interface StandingRow {
+  rank: number; team: string; played: number; won: number; drawn: number;
+  lost: number; gf: number; ga: number; gd: number; points: number; form: string[];
+}
+export interface ClubResult {
+  date: string; round: string | null;
+  home_team: string; away_team: string; home_score: number; away_score: number;
+}
+
+export const clubs = {
+  leagues: () => get<ClubLeague[]>("/clubs/leagues", 0),
+  standings: (league: number, season: number) =>
+    get<StandingRow[]>(`/clubs/standings?league=${league}&season=${season}`, 0),
+  results: (league: number, season: number, team?: string, limit = 60) =>
+    get<ClubResult[]>(
+      `/clubs/results?league=${league}&season=${season}&limit=${limit}${team ? `&team=${encodeURIComponent(team)}` : ""}`,
+      0
+    ),
+};

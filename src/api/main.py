@@ -19,6 +19,7 @@ import analysis
 from schemas import (
     TeamRating, TeamDetail, Prediction, ModelInfo,
     ModelPerformance, UpcomingMatch, MatchDossier,
+    ClubLeague, StandingRow, ClubResult,
 )
 
 app = FastAPI(
@@ -135,3 +136,40 @@ def get_match_dossier(
             detail=f"Équipe(s) inconnue(s) du modèle : '{home}' ou '{away}'",
         )
     return result
+
+
+# ─── Championnats club ───
+@app.get("/clubs/leagues", response_model=List[ClubLeague], tags=["clubs"])
+def get_club_leagues():
+    """Championnats et saisons disponibles (table club_matches)."""
+    return service.club_leagues()
+
+
+@app.get("/clubs/standings", response_model=List[StandingRow], tags=["clubs"])
+def get_club_standings(
+    league: int = Query(..., description="ID de la ligue (61=Ligue 1, 39=PL...)"),
+    season: int = Query(..., description="Saison (2025 = 2025-26)"),
+):
+    """Classement calculé depuis les résultats importés."""
+    table = service.club_standings(league, season)
+    if table is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Aucune donnée pour cette ligue/saison. Lance "
+                   "'python src/sync_api_football.py results' d'abord.",
+        )
+    return table
+
+
+@app.get("/clubs/results", response_model=List[ClubResult], tags=["clubs"])
+def get_club_results(
+    league: int = Query(...),
+    season: int = Query(...),
+    team: str = Query(None, description="Filtrer sur une équipe"),
+    limit: int = Query(50, ge=1, le=400),
+):
+    """Derniers résultats de la ligue (ou d'une équipe), plus récents d'abord."""
+    res = service.club_results(league, season, team=team, limit=limit)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Table club_matches absente.")
+    return res

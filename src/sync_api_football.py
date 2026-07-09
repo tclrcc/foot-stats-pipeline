@@ -533,7 +533,9 @@ def cmd_results(args):
     for lg in leagues:
         lg_name = LEAGUE_NAMES.get(lg, str(lg))
         for season in seasons:
-            resp = _get("/fixtures", {"league": lg, "season": season})
+            # Filtre serveur des matchs terminés (doc officielle : status=FT-AET-PEN)
+            resp = _get("/fixtures", {"league": lg, "season": season,
+                                      "status": "-".join(sorted(FINISHED))})
             n = 0
             for m in resp:
                 st = (m["fixture"].get("status", {}) or {}).get("short", "")

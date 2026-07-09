@@ -4,6 +4,7 @@ const links = [
   { href: "/", label: "Accueil" },
   { href: "/upcoming", label: "Matchs à venir" },
   { href: "/match", label: "Dossier de match" },
+  { href: "/clubs", label: "Championnats" },
   { href: "/predict", label: "Prédire un match" },
   { href: "/teams", label: "Classement" },
   { href: "/model", label: "Performance" },

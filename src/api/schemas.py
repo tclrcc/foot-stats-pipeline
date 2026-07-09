@@ -120,6 +120,40 @@ class MatchFixture(BaseModel):
     host_playing: Optional[str] = None
 
 
+class ClubSeason(BaseModel):
+    season: int
+    matches: int
+
+
+class ClubLeague(BaseModel):
+    league_id: int
+    league_name: str
+    seasons: List[ClubSeason]
+
+
+class StandingRow(BaseModel):
+    rank: int
+    team: str
+    played: int
+    won: int
+    drawn: int
+    lost: int
+    gf: int
+    ga: int
+    gd: int
+    points: int
+    form: List[str]
+
+
+class ClubResult(BaseModel):
+    date: str
+    round: Optional[str] = None
+    home_team: str
+    away_team: str
+    home_score: int
+    away_score: int
+
+
 class MatchDossier(BaseModel):
     fixture: MatchFixture
     prediction: Prediction

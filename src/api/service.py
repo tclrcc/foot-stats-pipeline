@@ -275,3 +275,109 @@ def upcoming_matches(limit=20, with_prediction=True):
                     "away_team": fx["away_team"], "stage": fx.get("stage"),
                     "prediction": pred})
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAMPIONNATS CLUB (table club_matches, alimentée par sync_api_football results)
+# ─────────────────────────────────────────────────────────────────────────────
+def _club_table_exists(conn):
+    r = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='club_matches'"
+    ).fetchone()
+    return r is not None
+
+
+def club_leagues():
+    """Ligues et saisons disponibles dans club_matches, avec volumes."""
+    conn = _connect()
+    if not _club_table_exists(conn):
+        conn.close()
+        return []
+    rows = conn.execute("""
+        SELECT league_id, league_name, season, COUNT(*)
+        FROM club_matches GROUP BY league_id, season
+        ORDER BY league_name, season DESC
+    """).fetchall()
+    conn.close()
+    out = {}
+    for lid, lname, season, n in rows:
+        e = out.setdefault(lid, {"league_id": lid, "league_name": lname, "seasons": []})
+        e["seasons"].append({"season": season, "matches": n})
+    return list(out.values())
+
+
+def club_standings(league_id, season):
+    """
+    Classement calculé depuis les résultats : Pts (3/1/0), diff, buts,
+    forme sur les 5 derniers matchs. Départage simplifié points > diff >
+    buts marqués (les règles officielles varient selon les championnats).
+    """
+    conn = _connect()
+    if not _club_table_exists(conn):
+        conn.close()
+        return None
+    rows = conn.execute("""
+        SELECT date, home_team, away_team, home_score, away_score
+        FROM club_matches WHERE league_id=? AND season=?
+        ORDER BY date ASC
+    """, (league_id, season)).fetchall()
+    conn.close()
+    if not rows:
+        return None
+
+    t = {}
+    def team(name):
+        return t.setdefault(name, {"team": name, "played": 0, "won": 0, "drawn": 0,
+                                   "lost": 0, "gf": 0, "ga": 0, "points": 0, "form": []})
+    for date, h, a, hs, as_ in rows:
+        th, ta = team(h), team(a)
+        th["played"] += 1; ta["played"] += 1
+        th["gf"] += hs; th["ga"] += as_
+        ta["gf"] += as_; ta["ga"] += hs
+        if hs > as_:
+            th["won"] += 1; th["points"] += 3; ta["lost"] += 1
+            th["form"].append("V"); ta["form"].append("D")
+        elif hs < as_:
+            ta["won"] += 1; ta["points"] += 3; th["lost"] += 1
+            ta["form"].append("V"); th["form"].append("D")
+        else:
+            th["drawn"] += 1; ta["drawn"] += 1
+            th["points"] += 1; ta["points"] += 1
+            th["form"].append("N"); ta["form"].append("N")
+
+    table = []
+    for e in t.values():
+        e["gd"] = e["gf"] - e["ga"]
+        e["form"] = e["form"][-5:]
+        table.append(e)
+    table.sort(key=lambda e: (-e["points"], -e["gd"], -e["gf"], e["team"]))
+    for i, e in enumerate(table, 1):
+        e["rank"] = i
+    return table
+
+
+def club_results(league_id, season, team=None, limit=50):
+    """Derniers résultats (les plus récents d'abord), filtrables par équipe."""
+    conn = _connect()
+    if not _club_table_exists(conn):
+        conn.close()
+        return None
+    q = """SELECT date, round, home_team, away_team, home_score, away_score
+           FROM club_matches WHERE league_id=? AND season=?"""
+    params = [league_id, season]
+    if team:
+        q += " AND (home_team=? OR away_team=?)"
+        params += [team, team]
+    q += " ORDER BY date DESC, fixture_id DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(q, params).fetchall()
+    conn.close()
+    out = []
+    for date, rnd, h, a, hs, as_ in rows:
+        j = None
+        if rnd and "- " in rnd:
+            tail = rnd.rsplit("- ", 1)[-1].strip()
+            j = f"J{tail}" if tail.isdigit() else rnd
+        out.append({"date": date, "round": j or rnd, "home_team": h,
+                    "away_team": a, "home_score": hs, "away_score": as_})
+    return out
