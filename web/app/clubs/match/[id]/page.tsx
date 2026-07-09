@@ -78,7 +78,7 @@ export default async function ClubMatchPage({ params }: { params: { id: string }
                 <div className="text-right">
                   {g.side === "home" && (
                     <span>
-                      <span className="font-medium text-chalk">{g.player}{goalMark(g.detail)}</span>
+                      <Scorer name={g.player} id={g.player_id} mark={goalMark(g.detail)} />
                       {g.assist && <span className="text-xs text-mist"> — passe {g.assist}</span>}
                     </span>
                   )}
@@ -89,7 +89,7 @@ export default async function ClubMatchPage({ params }: { params: { id: string }
                 <div>
                   {g.side === "away" && (
                     <span>
-                      <span className="font-medium text-chalk">{g.player}{goalMark(g.detail)}</span>
+                      <Scorer name={g.player} id={g.player_id} mark={goalMark(g.detail)} />
                       {g.assist && <span className="text-xs text-mist"> — passe {g.assist}</span>}
                     </span>
                   )}
@@ -168,7 +168,13 @@ export default async function ClubMatchPage({ params }: { params: { id: string }
                     {lu.xi.map((p, i) => (
                       <div key={i} className="flex items-center gap-2 border-b border-line/30 py-1 text-sm">
                         <span className="w-7 shrink-0 text-right font-mono text-xs tabular text-mist">{p.number ?? "–"}</span>
-                        <span className="text-chalk">{p.name}</span>
+                        {p.id ? (
+                          <Link href={`/clubs/player/${p.id}?season=${d.season ?? 2025}`} className="text-chalk hover:text-pitch">
+                            {p.name}
+                          </Link>
+                        ) : (
+                          <span className="text-chalk">{p.name}</span>
+                        )}
                         <span className="ml-auto flex items-center gap-2">
                           {p.rating != null && (
                             <span className={`rounded px-1.5 py-0.5 font-mono text-xs tabular ${
@@ -190,6 +196,17 @@ export default async function ClubMatchPage({ params }: { params: { id: string }
       )}
     </div>
   );
+}
+
+function Scorer({ name, id, mark }: { name: string | null; id?: number | null; mark: string }) {
+  if (id) {
+    return (
+      <Link href={`/clubs/player/${id}`} className="font-medium text-chalk hover:text-pitch">
+        {name}{mark}
+      </Link>
+    );
+  }
+  return <span className="font-medium text-chalk">{name}{mark}</span>;
 }
 
 function BackLink() {

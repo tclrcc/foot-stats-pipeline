@@ -22,6 +22,7 @@ from schemas import (
     ClubLeague, StandingRow, ClubResult, TopPlayer,
 )
 import match_details
+import player_details
 
 app = FastAPI(
     title="Football Prediction API",
@@ -206,5 +207,20 @@ def get_club_match_detail(fixture_id: int):
         raise HTTPException(
             status_code=404,
             detail="Match introuvable (id inconnu de l'API, ou clé API absente du .env).",
+        )
+    return detail
+
+
+@app.get("/clubs/player/{player_id}", tags=["clubs"])
+def get_club_player(player_id: int, season: int = Query(2025, description="2025 = saison 2025-26")):
+    """
+    Fiche joueur complète : profil, stats par compétition, transferts,
+    palmarès. Cache 7 jours (stats) / 30 jours (transferts, palmarès).
+    """
+    detail = player_details.get_player_detail(player_id, season)
+    if detail is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Joueur introuvable pour cette saison (ou clé API absente du .env).",
         )
     return detail

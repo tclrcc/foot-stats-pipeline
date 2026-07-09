@@ -390,7 +390,8 @@ def club_top_players(league_id, season, category="scorers", limit=10):
     try:
         rows = conn.execute("""
             SELECT rank, player_name, team_name, appearances, minutes,
-                   goals, assists, penalties, rating, yellow_cards, red_cards
+                   goals, assists, penalties, rating, yellow_cards, red_cards,
+                   player_id
             FROM club_top_players
             WHERE league_id=? AND season=? AND category=?
             ORDER BY rank ASC LIMIT ?
@@ -404,4 +405,5 @@ def club_top_players(league_id, season, category="scorers", limit=10):
     return [{"rank": r[0], "player": r[1], "team": r[2], "appearances": r[3],
              "minutes": r[4], "goals": r[5], "assists": r[6],
              "penalties": r[7], "rating": r[8],
-             "yellow_cards": r[9], "red_cards": r[10]} for r in rows]
+             "yellow_cards": r[9], "red_cards": r[10],
+             "player_id": r[11]} for r in rows]

@@ -146,6 +146,7 @@ class StandingRow(BaseModel):
 
 
 class TopPlayer(BaseModel):
+    player_id: Optional[int] = None
     rank: int
     player: str
     team: Optional[str] = None

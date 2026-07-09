@@ -223,16 +223,16 @@ export default async function ClubsPage({
       {/* Joueurs : buteurs & passeurs */}
       {(scorers || assists || cards) && (
         <div className="mt-10 grid gap-8 lg:grid-cols-3">
-          {scorers && <PlayersCard title="Meilleurs buteurs" rows={scorers} metric="goals" />}
-          {assists && <PlayersCard title="Meilleurs passeurs" rows={assists} metric="assists" />}
-          {cards && <DisciplineCard rows={cards} />}
+          {scorers && <PlayersCard title="Meilleurs buteurs" rows={scorers} metric="goals" seasonSel={season} />}
+          {assists && <PlayersCard title="Meilleurs passeurs" rows={assists} metric="assists" seasonSel={season} />}
+          {cards && <DisciplineCard rows={cards} seasonSel={season} />}
         </div>
       )}
     </div>
   );
 }
 
-function PlayersCard({ title, rows, metric }: { title: string; rows: TopPlayer[]; metric: "goals" | "assists" }) {
+function PlayersCard({ title, rows, metric, seasonSel }: { title: string; rows: TopPlayer[]; metric: "goals" | "assists"; seasonSel: number }) {
   const max = Math.max(...rows.map((r) => r[metric]), 1);
   return (
     <section>
@@ -243,7 +243,13 @@ function PlayersCard({ title, rows, metric }: { title: string; rows: TopPlayer[]
             <div key={r.rank} className="flex items-center gap-3 text-sm">
               <span className="w-5 shrink-0 font-mono text-xs tabular text-mist">{r.rank}</span>
               <div className="w-44 min-w-0 shrink-0">
-                <div className="truncate font-medium text-chalk">{r.player}</div>
+                {r.player_id ? (
+                  <Link href={`/clubs/player/${r.player_id}?season=${seasonSel}`} className="block truncate font-medium text-chalk hover:text-pitch">
+                    {r.player}
+                  </Link>
+                ) : (
+                  <div className="truncate font-medium text-chalk">{r.player}</div>
+                )}
                 <div className="truncate text-xs text-mist">{r.team}</div>
               </div>
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
@@ -268,7 +274,7 @@ function PlayersCard({ title, rows, metric }: { title: string; rows: TopPlayer[]
   );
 }
 
-function DisciplineCard({ rows }: { rows: TopPlayer[] }) {
+function DisciplineCard({ rows, seasonSel }: { rows: TopPlayer[]; seasonSel: number }) {
   return (
     <section>
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-mist">Discipline</h2>
@@ -278,7 +284,13 @@ function DisciplineCard({ rows }: { rows: TopPlayer[] }) {
             <div key={r.rank} className="flex items-center gap-3 text-sm">
               <span className="w-5 shrink-0 font-mono text-xs tabular text-mist">{r.rank}</span>
               <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-chalk">{r.player}</div>
+                {r.player_id ? (
+                  <Link href={`/clubs/player/${r.player_id}?season=${seasonSel}`} className="block truncate font-medium text-chalk hover:text-pitch">
+                    {r.player}
+                  </Link>
+                ) : (
+                  <div className="truncate font-medium text-chalk">{r.player}</div>
+                )}
                 <div className="truncate text-xs text-mist">{r.team}</div>
               </div>
               <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs tabular">

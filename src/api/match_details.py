@@ -166,6 +166,7 @@ def _parse(m):
             "extra": extra,
             "side": side_of(e.get("team")),
             "player": (e.get("player") or {}).get("name"),
+            "player_id": (e.get("player") or {}).get("id"),
             "detail": e.get("detail"),
         }
         if e.get("type") == "Goal" and base["detail"] != "Missed Penalty":
@@ -185,6 +186,7 @@ def _parse(m):
                 "coach": (lu.get("coach") or {}).get("name"),
                 "xi": [
                     {
+                        "id": (p.get("player") or {}).get("id"),
                         "name": (p.get("player") or {}).get("name"),
                         "number": (p.get("player") or {}).get("number"),
                         "pos": (p.get("player") or {}).get("pos"),
