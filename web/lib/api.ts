@@ -265,9 +265,32 @@ export interface PlayerDetail {
   stats: PlayerCompStats[];
   transfers: { date: string | null; type: string | null; from_team: string | null; to_team: string | null }[];
   trophies: { league: string | null; country: string | null; season: string | null; place: string | null }[];
+  sidelined: { type: string | null; start: string | null; end: string | null }[];
+}
+
+export interface PlayerSearchResult {
+  player_id: number; name: string; firstname: string | null; lastname: string | null;
+  age: number | null; birth_date: string | null; nationality: string | null;
+  position: string | null; photo: string | null;
+}
+export interface PlayerDeep {
+  player_id: number; team: string; season: number;
+  analyzed_matches: number; missing_matches: number;
+  goals_total: number; assists_total: number; penalties: number;
+  matches_with_goal: number;
+  venue: { home: number; away: number };
+  by_minute: { bucket: string; goals: number }[];
+  by_opponent: { opponent: string; goals: number; assists: number; matches: number }[];
 }
 
 export const players = {
   detail: (playerId: number, season: number) =>
     get<PlayerDetail>(`/clubs/player/${playerId}?season=${season}`, 0),
+  search: (q: string) =>
+    get<PlayerSearchResult[]>(`/clubs/players/search?q=${encodeURIComponent(q)}`, 0),
+  deep: (playerId: number, season: number, team: string, name?: string) =>
+    get<PlayerDeep>(
+      `/clubs/player/${playerId}/deep?season=${season}&team=${encodeURIComponent(team)}${name ? `&name=${encodeURIComponent(name)}` : ""}`,
+      0
+    ),
 };

@@ -224,3 +224,31 @@ def get_club_player(player_id: int, season: int = Query(2025, description="2025 
             detail="Joueur introuvable pour cette saison (ou clé API absente du .env).",
         )
     return detail
+
+
+@app.get("/clubs/players/search", tags=["clubs"])
+def search_club_players(q: str = Query(..., min_length=3, description="Nom du joueur (≥ 3 caractères)")):
+    """Recherche de joueurs par nom (cache 7 jours par terme)."""
+    return player_details.search_players(q)
+
+
+@app.get("/clubs/player/{player_id}/deep", tags=["clubs"])
+def get_club_player_deep(
+    player_id: int,
+    season: int = Query(2025),
+    team: str = Query(..., description="Nom d'équipe exact (API) de la saison analysée"),
+    name: str = Query(None, description="Nom du joueur (pour compter ses passes décisives)"),
+):
+    """
+    Analyse approfondie : buts par adversaire, domicile/extérieur, tranche
+    de minutes. Premier lancement pour une équipe/saison : jusqu'à ~38
+    requêtes (une par match non encore en cache) ; instantané ensuite,
+    et le cache est partagé avec les résumés de match.
+    """
+    deep = player_details.get_player_deep(player_id, season, team, name=name)
+    if deep is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Aucun match trouvé pour '{team}' sur la saison {season} dans club_matches.",
+        )
+    return deep

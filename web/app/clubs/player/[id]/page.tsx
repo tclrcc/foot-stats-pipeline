@@ -74,6 +74,16 @@ export default async function PlayerPage({
 
       <SeasonPills id={params.id} season={season} />
 
+      {/* Analyse approfondie */}
+      {p.current_team && (
+        <Link
+          href={`/clubs/player/${p.player_id}/deep?season=${season}&team=${encodeURIComponent(p.current_team)}&name=${encodeURIComponent(p.name ?? "")}`}
+          className="mt-5 inline-block rounded-md border border-signal px-4 py-2 text-sm text-signal transition-colors hover:bg-signal hover:text-ink"
+        >
+          Analyse approfondie : contre qui, quand, où il marque →
+        </Link>
+      )}
+
       {/* Stats par compétition */}
       <div className="mt-6 space-y-5">
         {p.stats.length === 0 && (
@@ -85,6 +95,34 @@ export default async function PlayerPage({
           <CompStats key={i} st={st} />
         ))}
       </div>
+
+      {/* Indisponibilités */}
+      {p.sidelined && p.sidelined.length > 0 && (
+        <section className="mt-8">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-mist">
+            Indisponibilités (blessures & suspensions)
+          </h2>
+          <div className="rounded-card border border-line bg-slate p-4">
+            <div className="space-y-1.5">
+              {p.sidelined.map((sd, i) => (
+                <div key={i} className="flex items-center gap-3 border-b border-line/30 py-1.5 text-sm">
+                  <span className={`shrink-0 rounded border px-2 py-0.5 text-xs ${
+                    (sd.type ?? "").toLowerCase().includes("suspen")
+                      ? "border-signal/40 text-signal"
+                      : "border-clay/40 text-clay"
+                  }`}>
+                    {(sd.type ?? "").toLowerCase().includes("suspen") ? "Suspension" : "Blessure"}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-chalk">{sd.type}</span>
+                  <span className="shrink-0 font-mono text-xs tabular text-mist">
+                    {sd.start} → {sd.end ?? "?"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       <div className="mt-8 grid gap-8 lg:grid-cols-2">
         {/* Parcours */}

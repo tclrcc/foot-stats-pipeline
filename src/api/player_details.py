@@ -95,6 +95,7 @@ def get_player_detail(player_id, season):
     for kind, path, params in (
         ("transfers", "/transfers", {"player": player_id}),
         ("trophies", "/trophies", {"player": player_id}),
+        ("sidelined", "/sidelined", {"player": player_id}),
     ):
         data = _cached(conn, "player_extra", {"player_id": player_id, "kind": kind}, TTL_EXTRA_DAYS)
         if data is None:
@@ -180,6 +181,15 @@ def _parse(raw, extras, season):
             })
     transfers_out.sort(key=lambda t: str(t.get("date") or ""), reverse=True)
 
+    sidelined_out = []
+    for sd in extras.get("sidelined", []) or []:
+        sidelined_out.append({
+            "type": sd.get("type"),
+            "start": sd.get("start"),
+            "end": sd.get("end"),
+        })
+    sidelined_out.sort(key=lambda x: str(x.get("start") or ""), reverse=True)
+
     trophies_out = []
     for tr in extras.get("trophies", []) or []:
         trophies_out.append({
@@ -208,4 +218,134 @@ def _parse(raw, extras, season):
         "stats": stats_out,
         "transfers": transfers_out[:12],
         "trophies": trophies_out[:15],
+        "sidelined": sidelined_out[:8],
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RECHERCHE DE JOUEURS (/players/profiles?search=, cache 7 jours par terme)
+# ─────────────────────────────────────────────────────────────────────────────
+def search_players(query):
+    """Recherche par nom (≥ 3 caractères). Renvoie une liste de profils légers."""
+    q = (query or "").strip().lower()
+    if len(q) < 3:
+        return []
+    _ensure_tables()
+    conn = _connect()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS player_search (
+            query TEXT PRIMARY KEY, raw_json TEXT,
+            fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    raw = _cached(conn, "player_search", {"query": q}, TTL_STATS_DAYS)
+    if raw is None:
+        resp = _api_get("/players/profiles", {"search": q})
+        if resp is not None:
+            raw = resp
+            conn.execute(
+                "INSERT OR REPLACE INTO player_search (query, raw_json) VALUES (?,?)",
+                (q, json.dumps(raw, ensure_ascii=False)),
+            )
+            conn.commit()
+    conn.close()
+    out = []
+    for item in raw or []:
+        p = item.get("player", item) or {}
+        birth = p.get("birth", {}) or {}
+        out.append({
+            "player_id": p.get("id"),
+            "name": p.get("name"),
+            "firstname": p.get("firstname"),
+            "lastname": p.get("lastname"),
+            "age": p.get("age"),
+            "birth_date": birth.get("date"),
+            "nationality": p.get("nationality"),
+            "position": p.get("position"),
+            "photo": p.get("photo"),
+        })
+    return [p for p in out if p["player_id"]][:25]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ANALYSE APPROFONDIE (agrégée depuis les événements des matchs de l'équipe)
+# ─────────────────────────────────────────────────────────────────────────────
+MINUTE_BUCKETS = [(0, 15), (16, 30), (31, 45), (46, 60), (61, 75), (76, 120)]
+
+
+def get_player_deep(player_id, season, team, name=None):
+    """
+    Buts/passes par adversaire, domicile/extérieur, tranche de minutes.
+    Construit depuis les événements des matchs de `team` sur la saison
+    (table club_matches + cache club_match_details, complété via l'API
+    au premier lancement — chaque match récupéré est caché à vie).
+    """
+    import match_details as md
+
+    conn = _connect()
+    rows = conn.execute("""
+        SELECT fixture_id, home_team, away_team FROM club_matches
+        WHERE season=? AND (home_team=? OR away_team=?)
+        ORDER BY date ASC
+    """, (season, team, team)).fetchall()
+    conn.close()
+    if not rows:
+        return None
+
+    by_opp = {}
+    venue = {"home": 0, "away": 0}
+    buckets = [0] * len(MINUTE_BUCKETS)
+    goals_total = assists_total = penalties = matches_with_goal = 0
+    analyzed = failed = 0
+
+    for fid, home, away in rows:
+        detail = md.get_match_detail(fid)
+        if detail is None:
+            failed += 1
+            continue
+        analyzed += 1
+        team_side = "home" if home == team else "away"
+        opponent = away if team_side == "home" else home
+        opp = by_opp.setdefault(opponent, {"opponent": opponent, "goals": 0,
+                                           "assists": 0, "matches": 0})
+        opp["matches"] += 1
+        scored_here = False
+        for g in detail["events"]["goals"]:
+            if g.get("side") != team_side:
+                continue
+            if g.get("player_id") == player_id and g.get("detail") != "Own Goal":
+                opp["goals"] += 1
+                goals_total += 1
+                scored_here = True
+                venue[team_side] += 1
+                if g.get("detail") == "Penalty":
+                    penalties += 1
+                mn = g.get("minute")
+                if mn is not None:
+                    for i, (lo, hi) in enumerate(MINUTE_BUCKETS):
+                        if lo <= mn <= hi:
+                            buckets[i] += 1
+                            break
+            elif name and g.get("assist") and g["assist"] == name:
+                opp["assists"] += 1
+                assists_total += 1
+        if scored_here:
+            matches_with_goal += 1
+
+    ranked = sorted(by_opp.values(), key=lambda o: (-o["goals"], -o["assists"], o["opponent"]))
+    labels = ["0-15'", "16-30'", "31-45'+", "46-60'", "61-75'", "76-90'+"]
+    return {
+        "player_id": player_id,
+        "team": team,
+        "season": season,
+        "analyzed_matches": analyzed,
+        "missing_matches": failed,
+        "goals_total": goals_total,
+        "assists_total": assists_total,
+        "penalties": penalties,
+        "matches_with_goal": matches_with_goal,
+        "venue": venue,
+        "by_minute": [{"bucket": labels[i], "goals": buckets[i]} for i in range(len(labels))],
+        "by_opponent": ranked,
     }

@@ -52,6 +52,19 @@ export default async function ClubsPage({
     <div>
       <Header />
 
+      {/* Recherche de joueur */}
+      <form action="/clubs/search" method="GET" className="mb-6 flex max-w-md gap-2">
+        <input
+          type="text"
+          name="q"
+          placeholder="Rechercher un joueur…"
+          className="flex-1 rounded-md border border-line bg-ink px-3 py-2 text-sm text-chalk outline-none placeholder:text-mist/60 focus:border-pitch"
+        />
+        <button type="submit" className="rounded-md border border-pitch px-4 py-2 text-sm text-pitch transition-colors hover:bg-pitch hover:text-ink">
+          Rechercher
+        </button>
+      </form>
+
       {/* Sélecteur de championnat */}
       <div className="mb-3 flex flex-wrap gap-2">
         {leagues.map((l) => (
