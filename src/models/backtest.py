@@ -239,7 +239,8 @@ def report(pred_df):
     else:
         print("   → Calibration à améliorer : values à prendre avec réserve.")
 
-    return {"brier": brier, "log_loss": ll, "accuracy": acc, "ece": ece}
+    return {"brier": brier, "log_loss": ll, "accuracy": acc, "ece": ece,
+            "brier_baseline": base_brier}
 
 
 def save_backtest(metrics):
@@ -253,9 +254,18 @@ def save_backtest(metrics):
             brier     REAL, log_loss REAL, accuracy REAL, ece REAL
         )
     """)
-    cur.execute("INSERT OR REPLACE INTO backtest_log VALUES (?, ?, ?, ?, ?)", (
+    # Migration douce : colonne ajoutée après coup (baseline manquante sur
+    # les runs historiques, disponible pour les nouveaux)
+    try:
+        cur.execute("ALTER TABLE backtest_log ADD COLUMN brier_baseline REAL")
+    except sqlite3.OperationalError:
+        pass
+    cur.execute("""INSERT OR REPLACE INTO backtest_log
+        (run_date, brier, log_loss, accuracy, ece, brier_baseline)
+        VALUES (?, ?, ?, ?, ?, ?)""", (
         pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
         metrics["brier"], metrics["log_loss"], metrics["accuracy"], metrics["ece"],
+        metrics.get("brier_baseline"),
     ))
     conn.commit()
     conn.close()

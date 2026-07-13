@@ -191,13 +191,23 @@ def model_performance():
         conn.close()
         return {"available": False,
                 "message": "Backtest non lancé. Exécute : python src/models/backtest.py"}
-    row = conn.execute("""
-        SELECT run_date, brier, log_loss, accuracy, ece
-        FROM backtest_log ORDER BY run_date DESC LIMIT 1
-    """).fetchone()
+    row = None
+    try:
+        row = conn.execute("""
+            SELECT run_date, brier, log_loss, accuracy, ece, brier_baseline
+            FROM backtest_log ORDER BY run_date DESC LIMIT 1
+        """).fetchone()
+    except Exception:
+        row = conn.execute("""
+            SELECT run_date, brier, log_loss, accuracy, ece, NULL
+            FROM backtest_log ORDER BY run_date DESC LIMIT 1
+        """).fetchone()
     conn.close()
     if not row:
         return {"available": False, "message": "Aucun résultat de backtest."}
+    gain = None
+    if row[5]:
+        gain = round((row[5] - row[1]) / row[5] * 100, 1)
     return {
         "available": True,
         "run_date": row[0],
@@ -205,6 +215,7 @@ def model_performance():
         "log_loss": round(row[2], 4),
         "accuracy": round(row[3] * 100, 1),
         "ece": round(row[4] * 100, 2),
+        "gain_vs_baseline_pct": gain,
     }
 
 

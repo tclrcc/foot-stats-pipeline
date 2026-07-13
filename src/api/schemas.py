@@ -64,6 +64,7 @@ class ModelPerformance(BaseModel):
     log_loss: Optional[float] = None
     accuracy: Optional[float] = None
     ece: Optional[float] = Field(None, description="Erreur de calibration attendue")
+    gain_vs_baseline_pct: Optional[float] = None
     message: Optional[str] = None
 
 

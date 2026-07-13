@@ -64,6 +64,7 @@ export interface ModelPerformance {
   log_loss: number | null;
   accuracy: number | null;
   ece: number | null;
+  gain_vs_baseline_pct: number | null;
   message: string | null;
 }
 

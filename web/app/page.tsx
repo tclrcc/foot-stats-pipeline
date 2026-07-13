@@ -1,15 +1,17 @@
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, clubModel } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [teams, perf, info] = await Promise.all([
+  const [teams, perf, info, clubModels] = await Promise.all([
     api.teams(),
     api.modelPerformance().catch(() => null),
     api.modelInfo().catch(() => null),
+    clubModel.models().catch(() => []),
   ]);
   const top = teams.slice(0, 6);
+  const clubsTrained = clubModels.length > 0;
 
   return (
     <div>
@@ -49,10 +51,50 @@ export default async function HomePage() {
       {perf?.available && (
         <section className="mt-6 grid gap-4 sm:grid-cols-3">
           <Stat label="Précision (1N2)" value={`${perf.accuracy!.toFixed(1)}%`} sub="sur 788 matchs testés" />
-          <Stat label="Gain vs modèle naïf" value="~25%" sub="Brier score, walk-forward" />
+          <Stat
+            label="Gain vs modèle naïf"
+            value={perf.gain_vs_baseline_pct != null ? `${perf.gain_vs_baseline_pct > 0 ? "+" : ""}${perf.gain_vs_baseline_pct.toFixed(1)}%` : "—"}
+            sub="Brier score, walk-forward"
+          />
           <Stat label="Erreur de calibration" value={`${perf.ece!.toFixed(2)}%`} sub="ECE — plus bas = mieux" />
         </section>
       )}
+
+      {/* Passerelle vers le volet clubs */}
+      <section className="mt-8 rounded-card border border-line bg-slate p-6 sm:p-7">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="mb-1.5 font-mono text-xs uppercase tracking-widest text-signal">
+              Big 5 européen
+            </p>
+            <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
+              Le même moteur, entraîné par championnat
+            </h2>
+            <p className="mt-1.5 max-w-xl text-sm text-mist">
+              Ligue 1, Premier League, La Liga, Serie A, Bundesliga : classements,
+              résultats, fiches joueurs et prédictions club, avec l&apos;avantage du
+              terrain propre à chaque championnat.
+              {clubsTrained && " Modèle validé par backtest sur chaque ligue."}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-3">
+            <Link
+              href="/clubs"
+              className="rounded-md bg-signal px-5 py-2.5 text-sm font-semibold text-ink transition-opacity hover:opacity-90"
+            >
+              Explorer les championnats
+            </Link>
+            {clubsTrained && (
+              <Link
+                href="/clubs/predict"
+                className="rounded-md border border-line px-5 py-2.5 text-sm font-semibold text-chalk transition-colors hover:bg-ink"
+              >
+                Prédire un match club
+              </Link>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* Top équipes */}
       <section className="mt-10">
