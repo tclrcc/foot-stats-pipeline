@@ -122,7 +122,11 @@ export default async function ClubsPage({
             {upcoming.map((m) => {
               const p = m.prediction;
               return (
-                <div key={m.fixture_id} className="rounded-card border border-line bg-slate px-4 py-3">
+                <Link
+                  key={m.fixture_id}
+                  href={`/clubs/preview?league=${m.league_id}&home=${encodeURIComponent(m.home_team)}&away=${encodeURIComponent(m.away_team)}`}
+                  className="block rounded-card border border-line bg-slate px-4 py-3 transition-colors hover:border-pitch"
+                >
                   <div className="mb-1.5 flex items-center gap-2 text-xs text-mist">
                     {m.round && <span className="rounded border border-line px-1.5 py-0.5 font-mono text-signal">{m.round}</span>}
                     <span>{fmtDate(m.date)} · {m.date.slice(11, 16)}</span>
@@ -150,7 +154,7 @@ export default async function ClubsPage({
                       Prédiction indisponible (équipe nouvelle pour le modèle).
                     </p>
                   )}
-                </div>
+                </Link>
               );
             })}
           </div>

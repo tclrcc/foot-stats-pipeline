@@ -297,3 +297,19 @@ def get_club_upcoming(
 ):
     """Matchs de championnat à venir, avec prédiction du modèle quand disponible."""
     return service.club_upcoming(league, limit)
+
+
+@app.get("/clubs/dossier", tags=["clubs"])
+def get_club_dossier(
+    league: int = Query(...),
+    home: str = Query(...),
+    away: str = Query(...),
+):
+    """Dossier d'avant-match club : prédiction, forme, H2H, classement."""
+    d = service.club_dossier(league, home, away)
+    if d is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Équipe(s) inconnue(s) dans la ligue {league} : '{home}' / '{away}'.",
+        )
+    return d

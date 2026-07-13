@@ -335,3 +335,28 @@ export const clubUpcoming = {
       0
     ),
 };
+
+// ─── Dossier d'avant-match club ───
+export interface ClubFormEntry {
+  date: string; opponent: string; venue: "home" | "away"; score: string; result: "V" | "N" | "D";
+}
+export interface ClubStandingSnap {
+  rank: number; points: number; played: number; gd: number; form: string[];
+}
+export interface ClubDossier {
+  league_id: number; league_name: string; season: number;
+  home_team: string; away_team: string;
+  prediction: Prediction | null;
+  physionomie: { total_xg: number; profile: string } | null;
+  standings: { home: ClubStandingSnap | null; away: ClubStandingSnap | null };
+  form: { home: ClubFormEntry[]; away: ClubFormEntry[] };
+  h2h: { date: string; season: number; home_team: string; away_team: string; home_score: number; away_score: number }[];
+  h2h_balance: { home_wins: number; draws: number; away_wins: number };
+}
+export const clubDossier = {
+  get: (league: number, home: string, away: string) =>
+    get<ClubDossier>(
+      `/clubs/dossier?league=${league}&home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`,
+      0
+    ),
+};

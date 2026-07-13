@@ -569,3 +569,119 @@ def club_upcoming(league_id=None, limit=30):
             "prediction": pred,
         })
     return out
+
+
+def club_dossier(league_id, home, away):
+    """
+    Dossier d'avant-match club : prédiction, physionomie, positions au
+    classement, forme récente (5 derniers), confrontations directes.
+    Tout est calculé depuis club_matches + le modèle de la ligue.
+    """
+    conn = _connect()
+    try:
+        latest = conn.execute(
+            "SELECT MAX(season) FROM club_matches WHERE league_id=?",
+            (league_id,)).fetchone()[0]
+    except Exception:
+        conn.close()
+        return None
+    if latest is None:
+        conn.close()
+        return None
+
+    def known(team):
+        return conn.execute(
+            """SELECT 1 FROM club_matches
+               WHERE league_id=? AND (home_team=? OR away_team=?) LIMIT 1""",
+            (league_id, team, team)).fetchone() is not None
+
+    if not known(home) or not known(away):
+        conn.close()
+        return None
+
+    # ── Forme : 5 derniers matchs toutes saisons confondues ──
+    def recent_form(team, n=5):
+        rows = conn.execute("""
+            SELECT date, home_team, away_team, home_score, away_score
+            FROM club_matches
+            WHERE league_id=? AND (home_team=? OR away_team=?)
+            ORDER BY date DESC LIMIT ?""",
+            (league_id, team, team, n)).fetchall()
+        out = []
+        for date, h, a, hs, as_ in rows:
+            at_home = (h == team)
+            gf, ga = (hs, as_) if at_home else (as_, hs)
+            res = "V" if gf > ga else ("N" if gf == ga else "D")
+            out.append({"date": date, "opponent": a if at_home else h,
+                        "venue": "home" if at_home else "away",
+                        "score": f"{gf}-{ga}", "result": res})
+        return out
+
+    # ── Confrontations directes (les 6 dernières) ──
+    h2h_rows = conn.execute("""
+        SELECT date, season, home_team, away_team, home_score, away_score
+        FROM club_matches
+        WHERE league_id=? AND ((home_team=? AND away_team=?) OR (home_team=? AND away_team=?))
+        ORDER BY date DESC LIMIT 6""",
+        (league_id, home, away, away, home)).fetchall()
+
+    form_home = recent_form(home)
+    form_away = recent_form(away)
+    lname = conn.execute(
+        "SELECT league_name FROM club_matches WHERE league_id=? LIMIT 1",
+        (league_id,)).fetchone()
+    conn.close()
+
+    h2h = [{"date": d, "season": se, "home_team": h, "away_team": a,
+            "home_score": hs, "away_score": as_}
+           for d, se, h, a, hs, as_ in h2h_rows]
+    balance = {"home_wins": 0, "draws": 0, "away_wins": 0}
+    for m in h2h:
+        winner = None if m["home_score"] == m["away_score"] else \
+            (m["home_team"] if m["home_score"] > m["away_score"] else m["away_team"])
+        if winner is None:
+            balance["draws"] += 1
+        elif winner == home:
+            balance["home_wins"] += 1
+        else:
+            balance["away_wins"] += 1
+
+    # ── Positions au classement (dernière saison) ──
+    table = club_standings(league_id, latest) or []
+    def snap(team):
+        for r in table:
+            if r["team"] == team:
+                return {"rank": r["rank"], "points": r["points"],
+                        "played": r["played"], "gd": r["gd"], "form": r["form"]}
+        return None
+
+    # ── Prédiction + physionomie ──
+    pred = club_predict(league_id, home, away)
+    physio = None
+    if pred:
+        total = pred["xg_home"] + pred["xg_away"]
+        diff = abs(pred["xg_home"] - pred["xg_away"])
+        if total < 2.2:
+            profile = "Match fermé attendu"
+        elif total > 3.1:
+            profile = "Match ouvert attendu"
+        else:
+            profile = "Rythme équilibré attendu"
+        if diff >= 0.8:
+            fav = home if pred["xg_home"] > pred["xg_away"] else away
+            profile += f", ascendant net pour {fav}"
+        physio = {"total_xg": round(total, 2), "profile": profile}
+
+    return {
+        "league_id": league_id,
+        "league_name": lname[0] if lname else str(league_id),
+        "season": latest,
+        "home_team": home,
+        "away_team": away,
+        "prediction": pred,
+        "physionomie": physio,
+        "standings": {"home": snap(home), "away": snap(away)},
+        "form": {"home": form_home, "away": form_away},
+        "h2h": h2h,
+        "h2h_balance": balance,
+    }

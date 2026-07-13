@@ -710,8 +710,15 @@ def cmd_upcoming(args):
             leagues.append(int(tok))
     leagues = list(dict.fromkeys(leagues))
 
-    d_from = str(date.today())
-    d_to = str(date.today() + timedelta(days=int(args.days)))
+    d_from = date.today()
+    d_to = date.today() + timedelta(days=int(args.days))
+
+    # L'API exige 'season' avec league+from/to. Saison européenne déduite de
+    # la date (juil-déc → année en cours, jan-juin → année précédente) ;
+    # si la fenêtre chevauche deux saisons, on interroge les deux.
+    def season_of(d):
+        return d.year if d.month >= 7 else d.year - 1
+    seasons = sorted({season_of(d_from), season_of(d_to)})
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
@@ -726,8 +733,11 @@ def cmd_upcoming(args):
     total = 0
     for lg in leagues:
         lg_name = LEAGUE_NAMES.get(lg, str(lg))
-        resp = _get("/fixtures", {"league": lg, "from": d_from, "to": d_to,
-                                  "timezone": args.timezone})
+        resp = []
+        for season in seasons:
+            resp += _get("/fixtures", {"league": lg, "season": season,
+                                       "from": str(d_from), "to": str(d_to),
+                                       "timezone": args.timezone})
         conn.execute("DELETE FROM club_upcoming WHERE league_id=?", (lg,))
         n = 0
         for m in resp:
@@ -747,7 +757,8 @@ def cmd_upcoming(args):
             n += 1
         conn.commit()
         total += n
-        print(f"   {lg_name} : {n} match(s) programmé(s) sur {d_from} → {d_to}")
+        print(f"   {lg_name} : {n} match(s) programmé(s) sur {d_from} → {d_to} "
+              f"(saison{'s' if len(seasons)>1 else ''} {', '.join(map(str, seasons))})")
         time.sleep(0.3)
     conn.close()
     print(f"\n💾 {total} match(s) dans club_upcoming.")
