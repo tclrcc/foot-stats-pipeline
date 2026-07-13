@@ -79,7 +79,7 @@ export function Predictor({ teams }: { teams: TeamRating[] }) {
   );
 }
 
-function TeamSelect({
+export function TeamSelect({
   label,
   value,
   onChange,
@@ -112,7 +112,7 @@ function TeamSelect({
   );
 }
 
-function PredictionResult({ pred }: { pred: Prediction }) {
+export function PredictionResult({ pred }: { pred: Prediction }) {
   const m = pred.markets;
   return (
     <div className="space-y-6">

@@ -407,3 +407,126 @@ def club_top_players(league_id, season, category="scorers", limit=10):
              "penalties": r[7], "rating": r[8],
              "yellow_cards": r[9], "red_cards": r[10],
              "player_id": r[11]} for r in rows]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MODÈLE CLUB (Dixon-Coles par championnat — tables club_dc_*)
+# ─────────────────────────────────────────────────────────────────────────────
+_CLUB_PARAMS_CACHE = {}
+
+
+def get_club_params(league_id):
+    """Params entraînés d'une ligue (cache mémoire par ligue). None si non entraînée."""
+    if league_id not in _CLUB_PARAMS_CACHE:
+        import club_dixon_coles as cdc
+        _CLUB_PARAMS_CACHE[league_id] = cdc.load_league_params(league_id)
+    return _CLUB_PARAMS_CACHE[league_id]
+
+
+def clear_club_cache():
+    _CLUB_PARAMS_CACHE.clear()
+
+
+def club_predict(league_id, home, away, lam_mult=1.0, mu_mult=1.0):
+    """Prédiction club — même format que predict() ; avantage du terrain réel."""
+    loaded = get_club_params(league_id)
+    if loaded is None:
+        return None
+    team_params, glob = loaded
+    gamma, rho = glob["gamma"], glob["rho"]
+
+    lam, mu = dc.predict_lambdas(home, away, False, team_params, gamma)
+    if lam is None:
+        return None
+    lam *= lam_mult
+    mu *= mu_mult
+
+    probs = dc.market_probabilities(lam, mu, rho)
+    mat = dc.score_matrix(lam, mu, rho, max_goals=8)
+    scores = [(f"{i}-{j}", float(mat[i, j]))
+              for i in range(mat.shape[0]) for j in range(mat.shape[1])]
+    top = sorted(scores, key=lambda x: x[1], reverse=True)[:5]
+
+    return {
+        "home_team": home,
+        "away_team": away,
+        "neutral": False,
+        "xg_home": round(lam, 3),
+        "xg_away": round(mu, 3),
+        "markets": {
+            "home_win": round(probs["home"] * 100, 1),
+            "draw": round(probs["draw"] * 100, 1),
+            "away_win": round(probs["away"] * 100, 1),
+            "over_1_5": round(probs["over_1_5"] * 100, 1),
+            "over_2_5": round(probs["over_2_5"] * 100, 1),
+            "under_2_5": round(probs["under_2_5"] * 100, 1),
+            "btts_yes": round(probs["btts_yes"] * 100, 1),
+            "btts_no": round(probs["btts_no"] * 100, 1),
+        },
+        "top_scorelines": [
+            {"score": s, "probability": round(p * 100, 1)} for s, p in top
+        ],
+        "method": "dixon_coles_club",
+    }
+
+
+def club_teams(league_id):
+    """
+    Équipes connues du modèle de la ligue, celles de la dernière saison
+    importée en premier (pertinence : promus/relégués).
+    """
+    loaded = get_club_params(league_id)
+    if loaded is None:
+        return None
+    team_params, _ = loaded
+    conn = _connect()
+    last_season = conn.execute(
+        "SELECT MAX(season) FROM club_matches WHERE league_id=?", (league_id,)
+    ).fetchone()[0]
+    current = {r[0] for r in conn.execute(
+        "SELECT DISTINCT home_team FROM club_matches WHERE league_id=? AND season=?",
+        (league_id, last_season))}
+    conn.close()
+    out = []
+    for team, row in team_params.iterrows():
+        out.append({"team": team, "attack": round(float(row["alpha"]), 3),
+                    "defense": round(float(row["beta"]), 3),
+                    "in_current_season": team in current})
+    out.sort(key=lambda t: (not t["in_current_season"], -t["attack"]))
+    return out
+
+
+def club_models_info():
+    """Ligues entraînées : params globaux + dernier backtest. Liste (peut être vide)."""
+    conn = _connect()
+    try:
+        globs = conn.execute("""
+            SELECT g.league_id, g.gamma, g.rho, g.n_matches, g.trained_at
+            FROM club_dc_global g ORDER BY g.league_id
+        """).fetchall()
+    except Exception:
+        conn.close()
+        return []
+    names = dict(conn.execute(
+        "SELECT DISTINCT league_id, league_name FROM club_matches").fetchall())
+    out = []
+    for lid, gamma, rho, n, trained in globs:
+        bt = None
+        try:
+            row = conn.execute("""
+                SELECT test_season, n_matches, accuracy, brier, brier_baseline, ece
+                FROM club_backtest WHERE league_id=?
+                ORDER BY test_season DESC LIMIT 1""", (lid,)).fetchone()
+            if row:
+                bt = {"test_season": row[0], "n_matches": row[1],
+                      "accuracy": round(row[2], 4), "brier": round(row[3], 4),
+                      "brier_baseline": round(row[4], 4),
+                      "gain_vs_baseline_pct": round((row[4] - row[3]) / row[4] * 100, 1),
+                      "ece": round(row[5], 4) if row[5] is not None else None}
+        except Exception:
+            pass
+        out.append({"league_id": lid, "league_name": names.get(lid, str(lid)),
+                    "gamma": round(gamma, 3), "rho": round(rho, 3),
+                    "n_matches": n, "trained_at": trained, "backtest": bt})
+    conn.close()
+    return out

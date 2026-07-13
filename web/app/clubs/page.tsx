@@ -63,6 +63,12 @@ export default async function ClubsPage({
         <button type="submit" className="rounded-md border border-pitch px-4 py-2 text-sm text-pitch transition-colors hover:bg-pitch hover:text-ink">
           Rechercher
         </button>
+        <Link
+          href="/clubs/predict"
+          className="ml-2 rounded-md bg-pitch px-4 py-2 text-sm font-semibold text-ink transition-opacity hover:opacity-90"
+        >
+          Prédire un match →
+        </Link>
       </form>
 
       {/* Sélecteur de championnat */}

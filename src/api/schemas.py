@@ -160,6 +160,13 @@ class TopPlayer(BaseModel):
     red_cards: Optional[int] = None
 
 
+class ClubTeam(BaseModel):
+    team: str
+    attack: float
+    defense: float
+    in_current_season: bool
+
+
 class ClubResult(BaseModel):
     fixture_id: Optional[int] = None
     date: str

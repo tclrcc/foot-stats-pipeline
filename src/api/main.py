@@ -19,7 +19,7 @@ import analysis
 from schemas import (
     TeamRating, TeamDetail, Prediction, ModelInfo,
     ModelPerformance, UpcomingMatch, MatchDossier,
-    ClubLeague, StandingRow, ClubResult, TopPlayer,
+    ClubLeague, StandingRow, ClubResult, TopPlayer, ClubTeam,
 )
 import match_details
 import player_details
@@ -252,3 +252,39 @@ def get_club_player_deep(
             detail=f"Aucun match trouvé pour '{team}' sur la saison {season} dans club_matches.",
         )
     return deep
+
+
+# ─── Modèle club (Dixon-Coles par championnat) ───
+@app.get("/clubs/models", tags=["clubs"])
+def get_club_models():
+    """Championnats entraînés : avantage du terrain, corpus, dernier backtest."""
+    return service.club_models_info()
+
+
+@app.get("/clubs/teams", response_model=List[ClubTeam], tags=["clubs"])
+def get_club_teams(league: int = Query(...)):
+    """Équipes connues du modèle de la ligue (dernière saison en premier)."""
+    teams = service.club_teams(league)
+    if teams is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Ligue non entraînée. Lance "
+                   "'python src/models/club_dixon_coles.py train --league <id>'.",
+        )
+    return teams
+
+
+@app.get("/clubs/predict", response_model=Prediction, tags=["clubs"])
+def get_club_predict(
+    league: int = Query(..., description="61=Ligue 1, 39=PL, 140=Liga, 135=Serie A, 78=Bundesliga"),
+    home: str = Query(...),
+    away: str = Query(...),
+):
+    """Prédiction d'un match de club, avantage du terrain réel de la ligue."""
+    pred = service.club_predict(league, home, away)
+    if pred is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Ligue {league} non entraînée, ou équipe inconnue : '{home}' / '{away}'.",
+        )
+    return pred

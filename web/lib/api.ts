@@ -294,3 +294,29 @@ export const players = {
       0
     ),
 };
+
+
+// ─── Modèle club (Dixon-Coles par championnat) ───
+export interface ClubModelBacktest {
+  test_season: number; n_matches: number; accuracy: number;
+  brier: number; brier_baseline: number; gain_vs_baseline_pct: number;
+  ece: number | null;
+}
+export interface ClubModelInfo {
+  league_id: number; league_name: string;
+  gamma: number; rho: number; n_matches: number; trained_at: string;
+  backtest: ClubModelBacktest | null;
+}
+
+export const clubModel = {
+  models: () => get<ClubModelInfo[]>("/clubs/models", 0),
+  teams: (league: number) => get<ClubTeam[]>(`/clubs/teams?league=${league}`, 0),
+  predict: (league: number, home: string, away: string) =>
+    get<Prediction>(
+      `/clubs/predict?league=${league}&home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`,
+      0
+    ),
+};
+export interface ClubTeam {
+  team: string; attack: number; defense: number; in_current_season: boolean;
+}
