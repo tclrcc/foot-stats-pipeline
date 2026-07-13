@@ -261,6 +261,7 @@ def cmd_lineup(args):
         print("❌ Match introuvable (compo publiée ~40 min avant, ou date/ligue erronée).")
         return
     print(f"✅ Fixture ID : {fid}")
+    _ensure_table()  # robustesse : fonctionne même si 'ratings' n'a jamais tourné
     lineups = get_fixture_lineups(fid)
     if len(lineups) < 2:
         print("⚠️  Compositions pas encore publiées.")
@@ -766,6 +767,55 @@ def cmd_upcoming(args):
         print("   (hors saison ? élargis la fenêtre : --days 45)")
 
 
+def cmd_auto(args):
+    """
+    Pilote automatique d'avant-match (à mettre en cron toutes les 10 min).
+    Pour chaque match de data/fixtures.json débutant dans moins de --window
+    minutes : synchronise les forfaits puis tente la compo officielle à
+    chaque passage jusqu'à publication. Ne consomme rien hors fenêtre.
+    """
+    from datetime import datetime
+    from argparse import Namespace
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo(args.timezone))
+    except Exception:
+        now = datetime.now()
+
+    fixtures = _load_json(FIXTURES_PATH, {}).get("fixtures", [])
+    lineups = _load_json(LINEUPS_PATH, {})
+    window = int(args.window)
+
+    triggered = []
+    for f in fixtures:
+        try:
+            dt = datetime.strptime(f["date"], "%Y-%m-%d %H:%M")
+            if now.tzinfo is not None:
+                dt = dt.replace(tzinfo=now.tzinfo)
+        except Exception:
+            continue
+        delta_min = (dt - now).total_seconds() / 60
+        if 0 <= delta_min <= window:
+            triggered.append((f, delta_min))
+
+    if not triggered:
+        print(f"⏸  Aucun match dans les {window} prochaines minutes — rien à faire.")
+        return
+
+    print(f"🚦 {len(triggered)} match(s) imminent(s) — synchro forfaits + compos")
+    cmd_injuries(Namespace(league=args.league, season=args.season))
+
+    for f, dm in triggered:
+        key = f"{f['home']} vs {f['away']}"
+        entry = lineups.get(key) or {}
+        if (entry.get("home") or {}).get("xi") and (entry.get("away") or {}).get("xi"):
+            print(f"   ✅ {key} : compo déjà en place (H-{dm:.0f} min).")
+            continue
+        print(f"   📡 {key} (coup d'envoi dans {dm:.0f} min) — tentative compo...")
+        cmd_lineup(Namespace(home=f["home"], away=f["away"], date=f["date"][:10],
+                             fixture=None, league=args.league, season=args.season))
+
+
 def _best_match(model_name, lineups):
     for lu in lineups:
         if _norm(model_name) in _norm(lu["team"]) or _norm(lu["team"]) in _norm(model_name):
@@ -797,6 +847,12 @@ def main():
     pt.add_argument("--leagues", default="big5")
     pt.add_argument("--seasons", default="2025")
 
+    pa = sub.add_parser("auto")
+    pa.add_argument("--league", default="1")
+    pa.add_argument("--season", default="2026")
+    pa.add_argument("--window", default="75", help="Fenêtre en minutes (défaut 75)")
+    pa.add_argument("--timezone", default="Europe/Paris")
+
     pu = sub.add_parser("upcoming")
     pu.add_argument("--leagues", default="big5")
     pu.add_argument("--days", default="14")
@@ -820,7 +876,7 @@ def main():
     {"map": cmd_map, "ratings": cmd_ratings, "lineup": cmd_lineup,
      "fixtures": cmd_fixtures, "injuries": cmd_injuries,
      "results": cmd_results, "topplayers": cmd_topplayers,
-     "upcoming": cmd_upcoming}[args.cmd](args)
+     "upcoming": cmd_upcoming, "auto": cmd_auto}[args.cmd](args)
 
 
 if __name__ == "__main__":
