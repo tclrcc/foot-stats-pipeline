@@ -31,15 +31,13 @@ import dixon_coles as dc
 from backtest import brier_multiclass, log_loss, accuracy, baseline_metrics, calibration_table
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from sync_api_football import is_cup_competition
+from sync_api_football import is_cup_competition, resolve_leagues, league_display_name
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(PROJECT_ROOT, "data/db/foot_stats.db")
 
 MIN_MATCHES_PER_TEAM = 10
 REFIT_DAYS = 30
-BIG5 = {61: "Ligue 1", 39: "Premier League", 140: "La Liga",
-        135: "Serie A", 78: "Bundesliga"}
 
 
 def _connect():
@@ -224,13 +222,16 @@ def main():
     pb.add_argument("--season", type=int, default=2025)
     args = ap.parse_args()
 
-    leagues = list(BIG5) if str(args.league).lower() == "big5" else [int(args.league)]
+    leagues = resolve_leagues(args.league)
+    if not leagues:
+        print("Aucune ligue résolue — vérifie l'alias ou l'id fourni.")
+        return
     if args.cmd == "train":
         for lg in leagues:
-            print(f"\n════ {BIG5.get(lg, lg)} ════")
+            print(f"\n════ {league_display_name(lg)} ════")
             train_league(lg)
     else:
-        backtest_league(int(args.league), args.season)
+        backtest_league(leagues[0], args.season)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,13 @@
 {
-  "_doc": "Championnats ajoutés au-delà du Big 5. Remplis 'id' après vérification via : python src/sync_api_football.py find-league --name \"...\". Ne jamais deviner un id de mémoire — une erreur importe silencieusement la mauvaise compétition. type='league' (round-robin classique, classement + entraînement Dixon-Coles pertinents) ou 'cup' (phases mixtes groupes+élim. directe : results/topplayers utilisables, classement/entraînement refusés automatiquement).",
+  "_doc": "Championnats ajoutés au-delà du Big 5. Ids confirmés via 'find-league' sur le compte API-Football réel (voir historique). Format : type='league' (round-robin classique, classement + entraînement Dixon-Coles pertinents) ou 'cup' (phases mixtes groupes+élim. directe : results/topplayers utilisables, classement/entraînement refusés automatiquement).",
 
-  "ligue2": { "id": null, "name": "Ligue 2", "type": "league" },
-  "championship": { "id": null, "name": "Championship", "type": "league" },
-  "jupiler": { "id": null, "name": "Jupiler Pro League (Belgique D1)", "type": "league" },
-  "segunda": { "id": null, "name": "Segunda División (Espagne D2)", "type": "league" },
-  "eredivisie": { "id": null, "name": "Eredivisie (Pays-Bas D1)", "type": "league" },
-  "superlig": { "id": null, "name": "Süper Lig (Turquie D1)", "type": "league" },
+  "ligue2": { "id": 62, "name": "Ligue 2", "type": "league" },
+  "championship": { "id": 40, "name": "Championship", "type": "league" },
+  "jupiler": { "id": 144, "name": "Jupiler Pro League (Belgique D1)", "type": "league" },
+  "segunda": { "id": 141, "name": "Segunda División (Espagne D2)", "type": "league" },
+  "eredivisie": { "id": 88, "name": "Eredivisie (Pays-Bas D1)", "type": "league" },
+  "superlig": { "id": 203, "name": "Süper Lig (Turquie D1)", "type": "league" },
 
-  "europa": { "id": null, "name": "UEFA Europa League", "type": "cup" },
-  "conference": { "id": null, "name": "UEFA Europa Conference League", "type": "cup" }
+  "europa": { "id": 3, "name": "UEFA Europa League", "type": "cup" },
+  "conference": { "id": 848, "name": "UEFA Europa Conference League", "type": "cup" }
 }
