@@ -386,6 +386,66 @@ BIG5 = [39, 140, 135, 78, 61]
 LEAGUE_NAMES = {39: "Premier League", 140: "La Liga", 135: "Serie A",
                 78: "Bundesliga", 61: "Ligue 1", 1: "World Cup"}
 
+EXTRA_LEAGUES_PATH = os.path.join(PROJECT_ROOT, "data/leagues.json")
+
+
+def _load_extra_leagues():
+    """
+    Registre des championnats ajoutés par l'utilisateur (data/leagues.json),
+    au-delà du Big 5 câblé en dur. Format :
+      { "alias": {"id": 62, "name": "Ligue 2", "type": "league"} }
+    type "cup" = compétition à phases mixtes (groupes+élim. directe) :
+    le classement recalculé et l'entraînement Dixon-Coles n'ont pas de
+    sens pour ce format (écarts de niveau énormes, peu de matchs par
+    équipe) — utilisée seulement pour results/topplayers/upcoming.
+    """
+    raw = _load_json(EXTRA_LEAGUES_PATH, {})
+    return {k: v for k, v in raw.items() if isinstance(v, dict)}
+
+
+def resolve_leagues(spec):
+    """
+    Résout '--leagues' en liste d'ids uniques. Accepte : 'big5', un alias
+    du registre data/leagues.json, un id numérique, ou une liste
+    séparée par des virgules combinant tout ça.
+    """
+    extra = _load_extra_leagues()
+    ids = []
+    for tok in str(spec).replace(" ", "").lower().split(","):
+        if tok == "big5":
+            ids += BIG5
+        elif tok == "extra":
+            ids += [v["id"] for v in extra.values() if v.get("id")]
+        elif tok in LEAGUE_ALIASES:
+            ids.append(LEAGUE_ALIASES[tok])
+        elif tok in extra and extra[tok].get("id"):
+            ids.append(extra[tok]["id"])
+        elif tok in extra:
+            print(f"⚠️  '{tok}' ({extra[tok].get('name')}) : id pas encore renseigné dans "
+                  f"data/leagues.json. Lance 'find-league --name \"{extra[tok].get('name')}\"'.")
+        elif tok.isdigit():
+            ids.append(int(tok))
+        else:
+            print(f"⚠️  Alias inconnu : '{tok}' — ignoré. "
+                  f"Vérifie data/leagues.json ou utilise un id numérique.")
+    return list(dict.fromkeys(ids))
+
+
+def league_display_name(league_id):
+    if league_id in LEAGUE_NAMES:
+        return LEAGUE_NAMES[league_id]
+    for v in _load_extra_leagues().values():
+        if v.get("id") == league_id:
+            return v.get("name", str(league_id))
+    return str(league_id)
+
+
+def is_cup_competition(league_id):
+    for v in _load_extra_leagues().values():
+        if v.get("id") == league_id:
+            return v.get("type") == "cup"
+    return False
+
 # Statuts de match terminé (temps réglementaire, prolongation, tirs au but)
 FINISHED = {"FT", "AET", "PEN"}
 
@@ -494,17 +554,7 @@ def cmd_results(args):
     Réimport sans risque : INSERT OR REPLACE par fixture_id.
     """
     # ── Parse des ligues ──
-    leagues = []
-    for tok in str(args.leagues).replace(" ", "").lower().split(","):
-        if tok == "big5":
-            leagues += BIG5
-        elif tok in LEAGUE_ALIASES:
-            leagues.append(LEAGUE_ALIASES[tok])
-        elif tok.isdigit():
-            leagues.append(int(tok))
-        else:
-            print(f"⚠️  Ligue inconnue : '{tok}' (alias : {', '.join(LEAGUE_ALIASES)}, big5, ou id numérique)")
-    leagues = list(dict.fromkeys(leagues))
+    leagues = resolve_leagues(args.leagues)
     if not leagues:
         return
 
@@ -538,7 +588,7 @@ def cmd_results(args):
 
     total = 0
     for lg in leagues:
-        lg_name = LEAGUE_NAMES.get(lg, str(lg))
+        lg_name = league_display_name(lg)
         for season in seasons:
             # Filtre serveur des matchs terminés (doc officielle : status=FT-AET-PEN)
             resp = _get("/fixtures", {"league": lg, "season": season,
@@ -616,15 +666,7 @@ def cmd_topplayers(args):
 
       python src/sync_api_football.py topplayers --leagues big5 --seasons 2025
     """
-    leagues = []
-    for tok in str(args.leagues).replace(" ", "").lower().split(","):
-        if tok == "big5":
-            leagues += BIG5
-        elif tok in LEAGUE_ALIASES:
-            leagues.append(LEAGUE_ALIASES[tok])
-        elif tok.isdigit():
-            leagues.append(int(tok))
-    leagues = list(dict.fromkeys(leagues))
+    leagues = resolve_leagues(args.leagues)
 
     s = str(args.seasons).replace(" ", "")
     if "-" in s:
@@ -654,7 +696,7 @@ def cmd_topplayers(args):
     endpoints = {"scorers": "/players/topscorers", "assists": "/players/topassists",
                  "yellowcards": "/players/topyellowcards", "redcards": "/players/topredcards"}
     for lg in leagues:
-        lg_name = LEAGUE_NAMES.get(lg, str(lg))
+        lg_name = league_display_name(lg)
         for season in seasons:
             for cat, path in endpoints.items():
                 resp = _get(path, {"league": lg, "season": season})
@@ -701,15 +743,7 @@ def cmd_upcoming(args):
       python src/sync_api_football.py upcoming --leagues big5 --days 14
     """
     from datetime import date, timedelta
-    leagues = []
-    for tok in str(args.leagues).replace(" ", "").lower().split(","):
-        if tok == "big5":
-            leagues += BIG5
-        elif tok in LEAGUE_ALIASES:
-            leagues.append(LEAGUE_ALIASES[tok])
-        elif tok.isdigit():
-            leagues.append(int(tok))
-    leagues = list(dict.fromkeys(leagues))
+    leagues = resolve_leagues(args.leagues)
 
     d_from = date.today()
     d_to = date.today() + timedelta(days=int(args.days))
@@ -733,7 +767,7 @@ def cmd_upcoming(args):
     """)
     total = 0
     for lg in leagues:
-        lg_name = LEAGUE_NAMES.get(lg, str(lg))
+        lg_name = league_display_name(lg)
         resp = []
         for season in seasons:
             resp += _get("/fixtures", {"league": lg, "season": season,
@@ -814,6 +848,35 @@ def cmd_auto(args):
         print(f"   📡 {key} (coup d'envoi dans {dm:.0f} min) — tentative compo...")
         cmd_lineup(Namespace(home=f["home"], away=f["away"], date=f["date"][:10],
                              fixture=None, league=args.league, season=args.season))
+
+
+def cmd_find_league(args):
+    """
+    Découvre les ids exacts de championnats via l'API (jamais deviné en
+    dur — un mauvais id importerait silencieusement la mauvaise
+    compétition). Une fois l'id confirmé, ajoute-le à data/leagues.json.
+
+      python src/sync_api_football.py find-league --name "Ligue 2"
+    """
+    resp = _get("/leagues", {"search": args.name})
+    if not resp:
+        print(f"Aucun résultat pour '{args.name}'.")
+        return
+    print(f"{len(resp)} résultat(s) pour '{args.name}' :\n")
+    for item in resp:
+        lg = item.get("league", {})
+        country = (item.get("country", {}) or {}).get("name")
+        seasons = item.get("seasons", []) or []
+        current = next((s for s in seasons if s.get("current")), None)
+        cov = ""
+        if current:
+            c = current.get("coverage", {}) or {}
+            has_stats = (c.get("fixtures", {}) or {}).get("statistics_fixtures")
+            cov = f" · saison {current.get('year')}" + (" · stats détaillées ✅" if has_stats else "")
+        print(f"  id={lg.get('id'):<6} {lg.get('name'):<30} ({country}) — {lg.get('type')}{cov}")
+    print("\n💡 Ajoute l'id confirmé dans data/leagues.json sous un alias court, "
+          "par exemple :\n"
+          '   "ligue2": {"id": <id>, "name": "Ligue 2", "type": "league"}')
 
 
 def cmd_club_lineup(args):
@@ -928,15 +991,7 @@ def cmd_club_auto(args):
     except Exception:
         now = datetime.now()
 
-    leagues = []
-    for tok in str(args.leagues).replace(" ", "").lower().split(","):
-        if tok == "big5":
-            leagues += BIG5
-        elif tok in LEAGUE_ALIASES:
-            leagues.append(LEAGUE_ALIASES[tok])
-        elif tok.isdigit():
-            leagues.append(int(tok))
-    leagues = list(dict.fromkeys(leagues))
+    leagues = resolve_leagues(args.leagues)
     window = int(args.window)
     inj_horizon = str(date.today() + timedelta(days=int(args.injuries_days)))
 
@@ -952,7 +1007,7 @@ def cmd_club_auto(args):
         if not rows:
             continue
         if any(d <= inj_horizon for _, d, _, _ in rows):
-            print(f"🩹 {LEAGUE_NAMES.get(lg, lg)} : synchro forfaits...")
+            print(f"🩹 {league_display_name(lg)} : synchro forfaits...")
             cmd_club_injuries(Namespace(league=str(lg), days=args.injuries_days))
             any_action = True
 
@@ -990,6 +1045,9 @@ def _best_match(model_name, lineups):
 def main():
     parser = argparse.ArgumentParser(description="Synchronisation API-Football")
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    pfl = sub.add_parser("find-league")
+    pfl.add_argument("--name", required=True)
 
     for name in ("map", "ratings"):
         p = sub.add_parser(name)
@@ -1057,7 +1115,7 @@ def main():
      "results": cmd_results, "topplayers": cmd_topplayers,
      "upcoming": cmd_upcoming, "auto": cmd_auto,
      "club-lineup": cmd_club_lineup, "club-injuries": cmd_club_injuries,
-     "club-auto": cmd_club_auto}[args.cmd](args)
+     "club-auto": cmd_club_auto, "find-league": cmd_find_league}[args.cmd](args)
 
 
 if __name__ == "__main__":

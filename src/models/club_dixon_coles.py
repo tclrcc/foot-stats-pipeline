@@ -30,6 +30,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dixon_coles as dc
 from backtest import brier_multiclass, log_loss, accuracy, baseline_metrics, calibration_table
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from sync_api_football import is_cup_competition
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(PROJECT_ROOT, "data/db/foot_stats.db")
 
@@ -67,6 +70,13 @@ def load_club_corpus(league_id, before=None):
 # ENTRAÎNEMENT
 # ─────────────────────────────────────────────────────────────────────────────
 def train_league(league_id, as_of=None, save=True, verbose=True):
+    if is_cup_competition(league_id):
+        print(f"❌ Ligue {league_id} : compétition à phases mixtes (groupes + "
+              f"élimination directe, écarts de niveau, peu de matchs/équipe). "
+              f"Le classement recalculé et le Dixon-Coles n'ont pas de sens "
+              f"pour ce format — entraînement refusé. results/topplayers "
+              f"restent utilisables normalement.")
+        return None
     df = load_club_corpus(league_id)
     if df.empty:
         print(f"❌ Aucun match pour la ligue {league_id} — lance d'abord "
@@ -131,6 +141,10 @@ def load_league_params(league_id):
 # BACKTEST WALK-FORWARD (une saison de test, refit périodique)
 # ─────────────────────────────────────────────────────────────────────────────
 def backtest_league(league_id, test_season, refit_days=REFIT_DAYS, verbose=True):
+    if is_cup_competition(league_id):
+        print(f"❌ Ligue {league_id} : compétition à phases mixtes — backtest non pertinent "
+              f"(voir 'train' pour le détail).")
+        return None
     conn = _connect()
     test = pd.read_sql_query("""
         SELECT date, home_team, away_team, home_score, away_score
