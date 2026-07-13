@@ -7,6 +7,7 @@ dépendance au CLI predict_upcoming — l'API est autonome et agnostique au spor
 """
 
 import os
+import json
 import sqlite3
 from functools import lru_cache
 
@@ -683,16 +684,49 @@ def club_dossier(league_id, home, away):
             profile += f", ascendant net pour {fav}"
         physio = {"total_xg": round(total, 2), "profile": profile}
 
+    # ── Compo officielle + infirmerie (seulement si match à venir connu) ──
+    fixture_id, kickoff = None, None
+    lineups, absences = None, None
+    conn3 = _connect()
+    up = conn3.execute("""SELECT fixture_id, date FROM club_upcoming
+        WHERE league_id=? AND home_team=? AND away_team=?
+        ORDER BY date LIMIT 1""", (league_id, home, away)).fetchone()
+    if up:
+        fixture_id, kickoff = up
+        try:
+            row = conn3.execute(
+                "SELECT data_json FROM club_lineups WHERE fixture_id=?",
+                (fixture_id,)).fetchone()
+            if row:
+                lineups = json.loads(row[0])
+        except Exception:
+            lineups = None
+        try:
+            abs_rows = conn3.execute("""SELECT team, player_name, reason
+                FROM club_absences WHERE league_id=? AND team IN (?,?)""",
+                (league_id, home, away)).fetchall()
+            absences = {"home": [], "away": []}
+            for team, player, reason in abs_rows:
+                side = "home" if team == home else "away"
+                absences[side].append({"name": player, "reason": reason})
+        except Exception:
+            absences = None
+    conn3.close()
+
     return {
         "league_id": league_id,
         "league_name": lname[0] if lname else str(league_id),
         "season": latest,
         "home_team": home,
         "away_team": away,
+        "fixture_id": fixture_id,
+        "kickoff": kickoff,
         "prediction": pred,
         "physionomie": physio,
         "standings": {"home": snap(home), "away": snap(away)},
         "form": {"home": form_home, "away": form_away},
         "h2h": h2h,
         "h2h_balance": balance,
+        "lineups": lineups,
+        "absences": absences,
     }

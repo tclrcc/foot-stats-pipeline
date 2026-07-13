@@ -347,12 +347,21 @@ export interface ClubStandingSnap {
 export interface ClubDossier {
   league_id: number; league_name: string; season: number;
   home_team: string; away_team: string;
+  fixture_id: number | null; kickoff: string | null;
   prediction: Prediction | null;
   physionomie: { total_xg: number; profile: string } | null;
   standings: { home: ClubStandingSnap | null; away: ClubStandingSnap | null };
   form: { home: ClubFormEntry[]; away: ClubFormEntry[] };
   h2h: { date: string; season: number; home_team: string; away_team: string; home_score: number; away_score: number }[];
   h2h_balance: { home_wins: number; draws: number; away_wins: number };
+  lineups: {
+    home: { team: string; formation: string | null; xi: { id: number | null; name: string; pos: string | null }[] };
+    away: { team: string; formation: string | null; xi: { id: number | null; name: string; pos: string | null }[] };
+  } | null;
+  absences: {
+    home: { name: string; reason: string | null }[];
+    away: { name: string; reason: string | null }[];
+  } | null;
 }
 export const clubDossier = {
   get: (league: number, home: string, away: string) =>

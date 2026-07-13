@@ -68,6 +68,78 @@ export default async function ClubPreviewPage({
         </div>
       )}
 
+      {/* Compositions officielles */}
+      {d.lineups && (
+        <div className="mt-8 rounded-card border border-line bg-slate p-5">
+          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-mist">
+            Compositions officielles
+          </h2>
+          <div className="grid gap-5 sm:grid-cols-2">
+            {(["home", "away"] as const).map((side) => {
+              const lu = d.lineups![side];
+              const accent = side === "home" ? "pitch" : "clay";
+              return (
+                <div key={side} className="rounded-md border border-line bg-ink/40 p-4">
+                  <div className="mb-3 flex items-baseline justify-between">
+                    <span className={`font-display text-lg font-semibold text-${accent}`}>{lu.team}</span>
+                    {lu.formation && (
+                      <span className="rounded border border-line px-2 py-0.5 font-mono text-xs text-chalk">{lu.formation}</span>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {lu.xi.map((p, i) => (
+                      <div key={i} className="flex items-center gap-2 border-b border-line/30 py-1 text-sm">
+                        <span className="text-chalk">{p.name}</span>
+                        {p.pos && <span className="ml-auto font-mono text-xs text-mist">{p.pos}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Infirmerie & suspensions */}
+      {d.absences && (d.absences.home.length > 0 || d.absences.away.length > 0) && (
+        <div className="mt-8 rounded-card border border-line bg-slate p-5">
+          <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-mist">
+            Infirmerie & suspensions
+          </h2>
+          <p className="mb-4 text-xs text-mist">
+            Indicatif — n&apos;ajuste pas encore les buts attendus du modèle (contrairement
+            aux sélections, où la dépendance par buteur est calculée).
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {(["home", "away"] as const).map((side) => {
+              const list = d.absences![side];
+              const teamName = side === "home" ? d.home_team : d.away_team;
+              const accent = side === "home" ? "pitch" : "clay";
+              return (
+                <div key={side} className="rounded-md border border-line bg-ink/40 p-4">
+                  <div className={`mb-2 font-display text-lg font-semibold text-${accent}`}>{teamName}</div>
+                  {list.length === 0 ? (
+                    <p className="text-sm text-mist">Aucun forfait déclaré.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {list.map((p, i) => (
+                        <div key={i} className="flex items-center justify-between border-b border-line/30 py-1 text-sm">
+                          <span className="text-chalk">{p.name}</span>
+                          {p.reason && (
+                            <span className="rounded border border-clay/40 px-2 py-0.5 text-xs text-clay">{p.reason}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Classement + H2H */}
       <div className="mt-8 grid gap-8 lg:grid-cols-2">
         <section>
@@ -130,10 +202,11 @@ export default async function ClubPreviewPage({
         </div>
       </section>
 
-      <p className="mt-8 text-xs text-mist">
-        Compositions officielles et indisponibilités : à venir sur ce dossier — les commandes de
-        synchronisation sont prêtes, le branchement club arrive.
-      </p>
+      {!d.lineups && d.fixture_id && (
+        <p className="mt-8 text-xs text-mist">
+          Compositions pas encore publiées (généralement ~40 min avant le coup d&apos;envoi).
+        </p>
+      )}
     </div>
   );
 }

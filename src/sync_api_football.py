@@ -816,6 +816,169 @@ def cmd_auto(args):
                              fixture=None, league=args.league, season=args.season))
 
 
+def cmd_club_lineup(args):
+    """
+    Compo officielle d'un match de club à venir (déjà dans club_upcoming,
+    donc le fixture_id est connu — pas de recherche par date/nom).
+    À lancer ~40 min avant le coup d'envoi (le pilote 'club_auto' s'en
+    charge en cron).
+
+      python src/sync_api_football.py club-lineup --fixture 123456
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""CREATE TABLE IF NOT EXISTS club_lineups (
+        fixture_id INTEGER PRIMARY KEY, data_json TEXT,
+        fetched_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+
+    fid = args.fixture
+    if not fid:
+        row = conn.execute("""SELECT fixture_id FROM club_upcoming
+            WHERE league_id=? AND home_team=? AND away_team=?""",
+            (int(args.league), args.home, args.away)).fetchone()
+        if not row:
+            print("❌ Match introuvable dans club_upcoming (lance 'upcoming' d'abord).")
+            conn.close()
+            return
+        fid = row[0]
+
+    lineups = get_fixture_lineups(fid)
+    if len(lineups) < 2:
+        print(f"⚠️  Compositions pas encore publiées pour le match {fid}.")
+        conn.close()
+        return
+
+    parsed = {}
+    for side_key, lu in zip(("home", "away"), lineups):
+        parsed[side_key] = {
+            "team": lu["team"], "formation": lu["formation"],
+            "xi": [{"id": p["id"], "name": p["name"], "pos": p["pos"]} for p in lu["xi"]],
+        }
+    conn.execute("INSERT OR REPLACE INTO club_lineups VALUES (?,?,CURRENT_TIMESTAMP)",
+                 (fid, json.dumps(parsed, ensure_ascii=False)))
+    conn.commit()
+    conn.close()
+    print(f"💾 Compo écrite pour le match {fid} : "
+          f"{parsed['home']['team']} ({parsed['home']['formation']}) vs "
+          f"{parsed['away']['team']} ({parsed['away']['formation']}).")
+
+
+def cmd_club_injuries(args):
+    """
+    Forfaits (blessures/suspensions) des équipes ayant un match dans
+    club_upcoming pour la ligue donnée, sur les --days prochains jours.
+    Remplace entièrement les absences de la ligue à chaque exécution
+    (les joueurs revenus de blessure disparaissent).
+
+      python src/sync_api_football.py club-injuries --league 61 --days 3
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""CREATE TABLE IF NOT EXISTS club_absences (
+        league_id INTEGER, team TEXT, player_name TEXT,
+        reason TEXT, type TEXT, fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (league_id, team, player_name))""")
+
+    lg = int(args.league)
+    from datetime import date, timedelta
+    horizon = str(date.today() + timedelta(days=int(args.days)))
+    rows = conn.execute("""SELECT DISTINCT date, home_team, away_team FROM club_upcoming
+        WHERE league_id=? AND date <= ?""", (lg, horizon)).fetchall()
+    if not rows:
+        print(f"⚠️  Aucun match à venir pour la ligue {lg} dans cette fenêtre.")
+        conn.close()
+        return
+
+    teams = {t for _, h, a in rows for t in (h, a)}
+    dates = sorted({d[:10] for d, _, _ in rows})
+
+    conn.execute("DELETE FROM club_absences WHERE league_id=?", (lg,))
+    n = 0
+    for d in dates:
+        resp = _get("/injuries", {"league": lg, "date": d})
+        for item in resp:
+            team = item["team"]["name"]
+            if team not in teams:
+                continue
+            reason = item["player"].get("reason") or ""
+            conn.execute("""INSERT OR REPLACE INTO club_absences VALUES
+                (?,?,?,?,?,CURRENT_TIMESTAMP)""",
+                (lg, team, item["player"]["name"],
+                 REASON_FR.get(reason, reason), item["player"].get("type")))
+            n += 1
+        time.sleep(0.3)
+    conn.commit()
+    conn.close()
+    print(f"💾 {n} absence(s) pour {len(teams)} équipe(s) (ligue {lg}, {len(dates)} date(s)).")
+
+
+def cmd_club_auto(args):
+    """
+    Pilote automatique côté club (à mettre en cron toutes les 10-15 min) :
+    pour chaque ligue entraînée présente dans club_upcoming, synchronise
+    les forfaits (une fois, si un match approche sous --injuries-days) et
+    tente la compo officielle de chaque match à moins de --window minutes
+    du coup d'envoi (retente jusqu'à publication, ignore le reste).
+
+      python src/sync_api_football.py club-auto --leagues big5
+    """
+    from datetime import datetime, date, timedelta
+    from argparse import Namespace
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo(args.timezone))
+    except Exception:
+        now = datetime.now()
+
+    leagues = []
+    for tok in str(args.leagues).replace(" ", "").lower().split(","):
+        if tok == "big5":
+            leagues += BIG5
+        elif tok in LEAGUE_ALIASES:
+            leagues.append(LEAGUE_ALIASES[tok])
+        elif tok.isdigit():
+            leagues.append(int(tok))
+    leagues = list(dict.fromkeys(leagues))
+    window = int(args.window)
+    inj_horizon = str(date.today() + timedelta(days=int(args.injuries_days)))
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""CREATE TABLE IF NOT EXISTS club_lineups (
+        fixture_id INTEGER PRIMARY KEY, data_json TEXT,
+        fetched_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    any_action = False
+
+    for lg in leagues:
+        rows = conn.execute("""SELECT fixture_id, date, home_team, away_team
+            FROM club_upcoming WHERE league_id=? ORDER BY date""", (lg,)).fetchall()
+        if not rows:
+            continue
+        if any(d <= inj_horizon for _, d, _, _ in rows):
+            print(f"🩹 {LEAGUE_NAMES.get(lg, lg)} : synchro forfaits...")
+            cmd_club_injuries(Namespace(league=str(lg), days=args.injuries_days))
+            any_action = True
+
+        for fid, d, h, a in rows:
+            try:
+                dt = datetime.strptime(d, "%Y-%m-%d %H:%M")
+                if now.tzinfo is not None:
+                    dt = dt.replace(tzinfo=now.tzinfo)
+            except Exception:
+                continue
+            delta_min = (dt - now).total_seconds() / 60
+            if not (0 <= delta_min <= window):
+                continue
+            has = conn.execute(
+                "SELECT 1 FROM club_lineups WHERE fixture_id=?", (fid,)).fetchone()
+            if has:
+                print(f"   ✅ {h} vs {a} : compo déjà en place.")
+                continue
+            print(f"   📡 {h} vs {a} (H-{delta_min:.0f} min) — tentative compo...")
+            cmd_club_lineup(Namespace(fixture=fid, league=str(lg), home=h, away=a))
+            any_action = True
+    conn.close()
+    if not any_action:
+        print("⏸  Rien à faire (aucun match imminent ni forfait à rafraîchir).")
+
+
 def _best_match(model_name, lineups):
     for lu in lineups:
         if _norm(model_name) in _norm(lu["team"]) or _norm(lu["team"]) in _norm(model_name):
@@ -853,6 +1016,22 @@ def main():
     pa.add_argument("--window", default="75", help="Fenêtre en minutes (défaut 75)")
     pa.add_argument("--timezone", default="Europe/Paris")
 
+    pcl = sub.add_parser("club-lineup")
+    pcl.add_argument("--fixture", type=int, default=None)
+    pcl.add_argument("--league", default="61")
+    pcl.add_argument("--home", default=None)
+    pcl.add_argument("--away", default=None)
+
+    pci = sub.add_parser("club-injuries")
+    pci.add_argument("--league", required=True)
+    pci.add_argument("--days", default="3")
+
+    pca = sub.add_parser("club-auto")
+    pca.add_argument("--leagues", default="big5")
+    pca.add_argument("--window", default="75", help="Fenêtre compo en minutes (défaut 75)")
+    pca.add_argument("--injuries-days", default="3", help="Fenêtre forfaits en jours (défaut 3)")
+    pca.add_argument("--timezone", default="Europe/Paris")
+
     pu = sub.add_parser("upcoming")
     pu.add_argument("--leagues", default="big5")
     pu.add_argument("--days", default="14")
@@ -876,7 +1055,9 @@ def main():
     {"map": cmd_map, "ratings": cmd_ratings, "lineup": cmd_lineup,
      "fixtures": cmd_fixtures, "injuries": cmd_injuries,
      "results": cmd_results, "topplayers": cmd_topplayers,
-     "upcoming": cmd_upcoming, "auto": cmd_auto}[args.cmd](args)
+     "upcoming": cmd_upcoming, "auto": cmd_auto,
+     "club-lineup": cmd_club_lineup, "club-injuries": cmd_club_injuries,
+     "club-auto": cmd_club_auto}[args.cmd](args)
 
 
 if __name__ == "__main__":
