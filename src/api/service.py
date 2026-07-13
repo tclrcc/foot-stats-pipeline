@@ -530,3 +530,42 @@ def club_models_info():
                     "n_matches": n, "trained_at": trained, "backtest": bt})
     conn.close()
     return out
+
+
+def club_upcoming(league_id=None, limit=30):
+    """
+    Matchs à venir (table club_upcoming, remplie par la commande
+    'upcoming'), avec la prédiction du modèle de la ligue attachée quand
+    les deux équipes sont connues (None sinon — ex. promu inconnu).
+    """
+    conn = _connect()
+    try:
+        q = """SELECT fixture_id, league_id, league_name, season, date, round,
+                      home_team, away_team
+               FROM club_upcoming"""
+        params = []
+        if league_id is not None:
+            q += " WHERE league_id=?"
+            params.append(league_id)
+        q += " ORDER BY date ASC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(q, params).fetchall()
+    except Exception:
+        conn.close()
+        return []
+    conn.close()
+
+    out = []
+    for fid, lid, lname, season, date, rnd, home, away in rows:
+        j = None
+        if rnd and "- " in rnd:
+            tail = rnd.rsplit("- ", 1)[-1].strip()
+            j = f"J{tail}" if tail.isdigit() else rnd
+        pred = club_predict(lid, home, away)
+        out.append({
+            "fixture_id": fid, "league_id": lid, "league_name": lname,
+            "season": season, "date": date, "round": j or rnd,
+            "home_team": home, "away_team": away,
+            "prediction": pred,
+        })
+    return out

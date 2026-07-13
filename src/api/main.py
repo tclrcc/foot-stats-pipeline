@@ -288,3 +288,12 @@ def get_club_predict(
             detail=f"Ligue {league} non entraînée, ou équipe inconnue : '{home}' / '{away}'.",
         )
     return pred
+
+
+@app.get("/clubs/upcoming", tags=["clubs"])
+def get_club_upcoming(
+    league: int = Query(None, description="Filtrer sur une ligue (sinon toutes)"),
+    limit: int = Query(30, ge=1, le=100),
+):
+    """Matchs de championnat à venir, avec prédiction du modèle quand disponible."""
+    return service.club_upcoming(league, limit)

@@ -320,3 +320,18 @@ export const clubModel = {
 export interface ClubTeam {
   team: string; attack: number; defense: number; in_current_season: boolean;
 }
+
+
+export interface ClubUpcomingMatch {
+  fixture_id: number; league_id: number; league_name: string;
+  season: number | null; date: string; round: string | null;
+  home_team: string; away_team: string;
+  prediction: Prediction | null;
+}
+export const clubUpcoming = {
+  list: (league?: number, limit = 30) =>
+    get<ClubUpcomingMatch[]>(
+      `/clubs/upcoming?limit=${limit}${league ? `&league=${league}` : ""}`,
+      0
+    ),
+};

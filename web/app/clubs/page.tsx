@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { clubs, clubsExtra, StandingRow, ClubResult, TopPlayer } from "@/lib/api";
+import { clubs, clubsExtra, clubUpcoming, StandingRow, ClubResult, TopPlayer, ClubUpcomingMatch } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -38,12 +38,13 @@ export default async function ClubsPage({
   const season = Number(searchParams.season) || current.seasons[0].season;
   const team = searchParams.team;
 
-  const [standings, results, scorers, assists, cards] = await Promise.all([
+  const [standings, results, scorers, assists, cards, upcoming] = await Promise.all([
     clubs.standings(current.league_id, season).catch(() => [] as StandingRow[]),
     clubs.results(current.league_id, season, team, team ? 400 : 40).catch(() => [] as ClubResult[]),
     clubsExtra.topplayers(current.league_id, season, "scorers").catch(() => null),
     clubsExtra.topplayers(current.league_id, season, "assists").catch(() => null),
     clubsExtra.topplayers(current.league_id, season, "yellowcards").catch(() => null),
+    clubUpcoming.list(current.league_id, 12).catch(() => [] as ClubUpcomingMatch[]),
   ]);
 
   const base = `/clubs?league=${current.league_id}&season=${season}`;
@@ -105,6 +106,56 @@ export default async function ClubsPage({
           </Link>
         ))}
       </div>
+
+      {/* Matchs à venir avec prédiction */}
+      {upcoming.length > 0 && (
+        <section className="mb-10">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-mist">
+              Matchs à venir — {current.league_name}
+            </h2>
+            <Link href={`/clubs/predict?league=${current.league_id}`} className="text-xs text-pitch hover:underline">
+              Prédire un autre match →
+            </Link>
+          </div>
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {upcoming.map((m) => {
+              const p = m.prediction;
+              return (
+                <div key={m.fixture_id} className="rounded-card border border-line bg-slate px-4 py-3">
+                  <div className="mb-1.5 flex items-center gap-2 text-xs text-mist">
+                    {m.round && <span className="rounded border border-line px-1.5 py-0.5 font-mono text-signal">{m.round}</span>}
+                    <span>{fmtDate(m.date)} · {m.date.slice(11, 16)}</span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm">
+                    <span className="truncate text-right font-medium text-chalk">{m.home_team}</span>
+                    <span className="font-mono text-xs text-mist">vs</span>
+                    <span className="truncate font-medium text-chalk">{m.away_team}</span>
+                  </div>
+                  {p ? (
+                    <>
+                      <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-line">
+                        <div style={{ width: `${p.markets.home_win}%`, backgroundColor: "#22C77E" }} />
+                        <div style={{ width: `${p.markets.draw}%`, backgroundColor: "#4C7DFF" }} />
+                        <div style={{ width: `${p.markets.away_win}%`, backgroundColor: "#FF5A6A" }} />
+                      </div>
+                      <div className="mt-1 flex justify-between font-mono text-[11px] tabular text-mist">
+                        <span className="text-pitch">{p.markets.home_win.toFixed(0)}%</span>
+                        <span>nul {p.markets.draw.toFixed(0)}%</span>
+                        <span className="text-clay">{p.markets.away_win.toFixed(0)}%</span>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-mist">
+                      Prédiction indisponible (équipe nouvelle pour le modèle).
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr]">
         {/* Classement */}

@@ -528,6 +528,12 @@ def cmd_results(args):
             status TEXT
         )
     """)
+    # Migration douce : ids d'équipes (jointure fiable malgré les renommages API)
+    for col in ("home_id", "away_id"):
+        try:
+            conn.execute(f"ALTER TABLE club_matches ADD COLUMN {col} INTEGER")
+        except sqlite3.OperationalError:
+            pass
 
     total = 0
     for lg in leagues:
@@ -546,21 +552,60 @@ def cmd_results(args):
                 if hs is None or as_ is None:
                     continue
                 conn.execute("""INSERT OR REPLACE INTO club_matches
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
+                    (fixture_id, league_id, league_name, season, date, round,
+                     home_team, away_team, home_score, away_score, status,
+                     home_id, away_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     m["fixture"]["id"], lg, lg_name, season,
                     str(m["fixture"]["date"])[:10],
                     (m.get("league", {}) or {}).get("round", ""),
                     m["teams"]["home"]["name"], m["teams"]["away"]["name"],
                     int(hs), int(as_), st,
+                    m["teams"]["home"].get("id"), m["teams"]["away"].get("id"),
                 ))
                 n += 1
             conn.commit()
             total += n
             print(f"   {lg_name} {season}-{str(season+1)[-2:]} : {n} matchs terminés importés")
             time.sleep(0.4)  # courtoisie quota/minute
+    _harmonize_team_names(conn)
     conn.close()
     print(f"\n💾 {total} matchs dans club_matches (base {os.path.basename(DB_PATH)}).")
     print("   Vérifie : sqlite3 data/db/foot_stats.db \"SELECT league_name, season, COUNT(*) FROM club_matches GROUP BY 1,2;\"")
+
+
+def _harmonize_team_names(conn):
+    """
+    L'API renomme parfois un club entre saisons (ex. 'Bayern Munich' →
+    'Bayern München'), ce qui coupe son corpus en deux. Nom canonique
+    par id d'équipe = le plus récent (tous côtés confondus), appliqué
+    partout (home et away).
+    """
+    rows = conn.execute("""
+        SELECT team_id, team FROM (
+            SELECT home_id AS team_id, home_team AS team, date FROM club_matches
+            WHERE home_id IS NOT NULL
+            UNION ALL
+            SELECT away_id, away_team, date FROM club_matches
+            WHERE away_id IS NOT NULL
+        ) ORDER BY date ASC
+    """).fetchall()
+    canonical = {}
+    for tid, name in rows:  # trié par date croissante → le dernier vu gagne
+        canonical[tid] = name
+
+    fixed = 0
+    for tid, name in canonical.items():
+        for side in ("home", "away"):
+            n = conn.execute(
+                f"UPDATE club_matches SET {side}_team=? WHERE {side}_id=? AND {side}_team<>?",
+                (name, tid, name)).rowcount
+            if n:
+                fixed += n
+                print(f"   🔧 (id {tid}) → « {name} » : {n} ligne(s) {side} harmonisée(s)")
+    conn.commit()
+    if fixed:
+        print(f"   ✅ {fixed} ligne(s) harmonisée(s) — relance l'entraînement du modèle.")
 
 
 def cmd_topplayers(args):
@@ -647,6 +692,69 @@ def cmd_topplayers(args):
     print("💾 club_top_players à jour.")
 
 
+def cmd_upcoming(args):
+    """
+    Matchs à venir des championnats → table club_upcoming (remplacée par
+    ligue à chaque exécution). 1 requête par ligue.
+
+      python src/sync_api_football.py upcoming --leagues big5 --days 14
+    """
+    from datetime import date, timedelta
+    leagues = []
+    for tok in str(args.leagues).replace(" ", "").lower().split(","):
+        if tok == "big5":
+            leagues += BIG5
+        elif tok in LEAGUE_ALIASES:
+            leagues.append(LEAGUE_ALIASES[tok])
+        elif tok.isdigit():
+            leagues.append(int(tok))
+    leagues = list(dict.fromkeys(leagues))
+
+    d_from = str(date.today())
+    d_to = str(date.today() + timedelta(days=int(args.days)))
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS club_upcoming (
+            fixture_id INTEGER PRIMARY KEY,
+            league_id INTEGER, league_name TEXT, season INTEGER,
+            date TEXT, round TEXT,
+            home_team TEXT, away_team TEXT,
+            home_id INTEGER, away_id INTEGER
+        )
+    """)
+    total = 0
+    for lg in leagues:
+        lg_name = LEAGUE_NAMES.get(lg, str(lg))
+        resp = _get("/fixtures", {"league": lg, "from": d_from, "to": d_to,
+                                  "timezone": args.timezone})
+        conn.execute("DELETE FROM club_upcoming WHERE league_id=?", (lg,))
+        n = 0
+        for m in resp:
+            st = (m["fixture"].get("status", {}) or {}).get("short", "")
+            if st not in ("NS", "TBD"):
+                continue
+            raw_date = m["fixture"]["date"]
+            conn.execute("""INSERT OR REPLACE INTO club_upcoming
+                VALUES (?,?,?,?,?,?,?,?,?,?)""", (
+                m["fixture"]["id"], lg, lg_name,
+                (m.get("league", {}) or {}).get("season"),
+                raw_date[:16].replace("T", " "),
+                (m.get("league", {}) or {}).get("round", ""),
+                m["teams"]["home"]["name"], m["teams"]["away"]["name"],
+                m["teams"]["home"].get("id"), m["teams"]["away"].get("id"),
+            ))
+            n += 1
+        conn.commit()
+        total += n
+        print(f"   {lg_name} : {n} match(s) programmé(s) sur {d_from} → {d_to}")
+        time.sleep(0.3)
+    conn.close()
+    print(f"\n💾 {total} match(s) dans club_upcoming.")
+    if total == 0:
+        print("   (hors saison ? élargis la fenêtre : --days 45)")
+
+
 def _best_match(model_name, lineups):
     for lu in lineups:
         if _norm(model_name) in _norm(lu["team"]) or _norm(lu["team"]) in _norm(model_name):
@@ -678,6 +786,11 @@ def main():
     pt.add_argument("--leagues", default="big5")
     pt.add_argument("--seasons", default="2025")
 
+    pu = sub.add_parser("upcoming")
+    pu.add_argument("--leagues", default="big5")
+    pu.add_argument("--days", default="14")
+    pu.add_argument("--timezone", default="Europe/Paris")
+
     pr = sub.add_parser("results")
     pr.add_argument("--leagues", default="big5",
                     help="big5, alias (ligue1, pl, liga, seriea, bundesliga) ou ids séparés par des virgules")
@@ -695,7 +808,8 @@ def main():
     args = parser.parse_args()
     {"map": cmd_map, "ratings": cmd_ratings, "lineup": cmd_lineup,
      "fixtures": cmd_fixtures, "injuries": cmd_injuries,
-     "results": cmd_results, "topplayers": cmd_topplayers}[args.cmd](args)
+     "results": cmd_results, "topplayers": cmd_topplayers,
+     "upcoming": cmd_upcoming}[args.cmd](args)
 
 
 if __name__ == "__main__":
