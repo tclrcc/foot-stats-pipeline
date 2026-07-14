@@ -1034,6 +1034,95 @@ def cmd_club_auto(args):
         print("⏸  Rien à faire (aucun match imminent ni forfait à rafraîchir).")
 
 
+def cmd_club_odds(args):
+    """
+    Cotes bookmakers pour les matchs de club_upcoming (couche privée,
+    jamais exposée sur le site web — CLI uniquement).
+
+    Contrainte importante de l'API (doc officielle) : les cotes ne sont
+    conservées que 7 jours et ne sont PAS récupérables rétroactivement
+    au-delà. La capture doit donc être faite au fil de l'eau (cron),
+    pas après coup — cette commande construit ton propre historique à
+    partir d'aujourd'hui, elle ne peut pas remonter dans le temps.
+
+      python src/sync_api_football.py club-odds --league 61 --days 10
+
+    Schéma normalisé écrit dans club_odds_snapshots — identique à celui
+    de data/odds.json (odds_extractor.py) pour rester compatible avec
+    le moteur EV existant (value_finder.py) :
+      {"1N2": {"1":.., "N":.., "2":..}, "Totaux": {...}, "BTTS": {...}}
+    Meilleure cote gardée par sélection quand plusieurs bookmakers.
+    """
+    from datetime import date, timedelta
+    lg = int(args.league)
+    horizon = str(date.today() + timedelta(days=int(args.days)))
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""CREATE TABLE IF NOT EXISTS club_odds_snapshots (
+        fixture_id INTEGER, market TEXT, selection TEXT, odds REAL,
+        captured_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (fixture_id, market, selection, captured_at))""")
+
+    rows = conn.execute("""SELECT fixture_id, home_team, away_team FROM club_upcoming
+        WHERE league_id=? AND date <= ? ORDER BY date""", (lg, horizon)).fetchall()
+    if not rows:
+        print(f"⚠️  Aucun match à venir pour la ligue {lg} sous {args.days} jours.")
+        conn.close()
+        return
+
+    n_matches, n_odds = 0, 0
+    for fid, home, away in rows:
+        resp = _get("/odds", {"fixture": fid})
+        parsed = _parse_odds_response(resp, home, away)
+        if not parsed:
+            print(f"   {home} vs {away} : pas encore de cotes publiées.")
+            continue
+        for market, selections in parsed.items():
+            for sel, price in selections.items():
+                conn.execute("""INSERT OR REPLACE INTO club_odds_snapshots
+                    VALUES (?,?,?,?,CURRENT_TIMESTAMP)""", (fid, market, sel, price))
+                n_odds += 1
+        n_matches += 1
+        print(f"   {home} vs {away} : {sum(len(v) for v in parsed.values())} cote(s) — "
+              f"{', '.join(parsed.keys())}")
+        time.sleep(0.3)
+    conn.commit()
+    conn.close()
+    print(f"\n💾 {n_odds} cote(s) capturée(s) sur {n_matches}/{len(rows)} match(s).")
+
+
+def _parse_odds_response(resp, home, away):
+    """
+    Normalise la réponse /odds vers {"1N2":{...},"Totaux":{...},"BTTS":{...}},
+    meilleure cote par sélection tous bookmakers confondus. Même schéma
+    que odds_extractor.py (compatible value_finder.py sans adaptation).
+    """
+    VALUE_MAP = {"home": "1", "draw": "N", "away": "2"}
+    best = {"1N2": {}, "Totaux": {}, "BTTS": {}}
+    for entry in resp or []:
+        for bm in entry.get("bookmakers", []) or []:
+            for bet in bm.get("bets", []) or []:
+                name = (bet.get("name") or "").lower()
+                if "match winner" in name or name == "1x2":
+                    market = "1N2"
+                elif "over/under" in name and "goals" in name:
+                    market = "Totaux"
+                elif "both teams" in name or "btts" in name:
+                    market = "BTTS"
+                else:
+                    continue
+                for v in bet.get("values", []) or []:
+                    raw_sel = str(v.get("value", "")).strip()
+                    sel = VALUE_MAP.get(raw_sel.lower(), raw_sel)
+                    try:
+                        price = float(v.get("odd"))
+                    except (TypeError, ValueError):
+                        continue
+                    if price > 1.0:
+                        best[market][sel] = max(best[market].get(sel, 0), price)
+    return {k: v for k, v in best.items() if v}
+
+
 def _best_match(model_name, lineups):
     for lu in lineups:
         if _norm(model_name) in _norm(lu["team"]) or _norm(lu["team"]) in _norm(model_name):
@@ -1090,6 +1179,10 @@ def main():
     pca.add_argument("--injuries-days", default="3", help="Fenêtre forfaits en jours (défaut 3)")
     pca.add_argument("--timezone", default="Europe/Paris")
 
+    pco = sub.add_parser("club-odds")
+    pco.add_argument("--league", required=True)
+    pco.add_argument("--days", default="10", help="Fenêtre en jours (défaut 10)")
+
     pu = sub.add_parser("upcoming")
     pu.add_argument("--leagues", default="big5")
     pu.add_argument("--days", default="14")
@@ -1115,7 +1208,8 @@ def main():
      "results": cmd_results, "topplayers": cmd_topplayers,
      "upcoming": cmd_upcoming, "auto": cmd_auto,
      "club-lineup": cmd_club_lineup, "club-injuries": cmd_club_injuries,
-     "club-auto": cmd_club_auto, "find-league": cmd_find_league}[args.cmd](args)
+     "club-auto": cmd_club_auto, "find-league": cmd_find_league,
+     "club-odds": cmd_club_odds}[args.cmd](args)
 
 
 if __name__ == "__main__":

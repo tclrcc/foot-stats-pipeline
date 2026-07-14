@@ -96,6 +96,10 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 # Pour figer les versions exactes de ton environnement (reproductibilité totale) :
 #   pip freeze > requirements.txt
+
+# Pour lancer la suite de tests (httpx2 requis par les versions récentes de starlette) :
+pip install -r requirements-dev.txt
+pytest -v
 cp .env.example .env   # renseigner API_FOOTBALL_KEY
 python src/refresh_all.py
 uvicorn src.api.main:app --reload
@@ -103,6 +107,15 @@ uvicorn src.api.main:app --reload
 # Frontend
 cd web && npm install && npm run dev
 ```
+
+## Couche privée d'efficience de marché
+
+Un module compare les probabilités du modèle aux cotes des bookmakers
+(retrait de marge, calcul d'espérance) — **une pratique standard de
+validation en littérature de prédiction sportive**, y compris dans
+l'article original de Dixon & Coles (1997). CLI uniquement, aucune
+page web, aucun endpoint API, aucune donnée de cotes exposée : c'est un
+outil d'usage personnel, pas une fonctionnalité du produit.
 
 ## Portée du projet
 

@@ -20,7 +20,7 @@ jobs:
       - name: Dépendances
         run: |
           pip install -r requirements.txt
-          pip install pytest
+          pip install -r requirements-dev.txt
 
       - name: Suite de tests
         run: pytest -v

@@ -37,6 +37,11 @@ def temp_db(tmp_path, monkeypatch):
         monkeypatch.setattr(cdc_mod, "DB_PATH", db_path)
     except ImportError:
         pass
+    try:
+        import club_value_finder as cvf_mod
+        monkeypatch.setattr(cvf_mod, "DB_PATH", db_path)
+    except ImportError:
+        pass
 
     return db_path
 
