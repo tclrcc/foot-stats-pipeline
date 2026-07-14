@@ -38,8 +38,9 @@ export default async function ClubsPage({
   const season = Number(searchParams.season) || current.seasons[0].season;
   const team = searchParams.team;
 
+  const isCup = current.type === "cup";
   const [standings, results, scorers, assists, cards, upcoming] = await Promise.all([
-    clubs.standings(current.league_id, season).catch(() => [] as StandingRow[]),
+    isCup ? Promise.resolve([] as StandingRow[]) : clubs.standings(current.league_id, season).catch(() => [] as StandingRow[]),
     clubs.results(current.league_id, season, team, team ? 400 : 40).catch(() => [] as ClubResult[]),
     clubsExtra.topplayers(current.league_id, season, "scorers").catch(() => null),
     clubsExtra.topplayers(current.league_id, season, "assists").catch(() => null),
@@ -167,6 +168,13 @@ export default async function ClubsPage({
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-mist">
             Classement — {current.league_name} {seasonLabel(season)}
           </h2>
+          {isCup ? (
+            <div className="rounded-card border border-line bg-slate p-6 text-center text-sm text-mist">
+              Classement non pertinent pour cette compétition (phases de groupes +
+              élimination directe) — consulte les résultats et les stats joueurs
+              ci-dessous.
+            </div>
+          ) : (
           <div className="overflow-x-auto rounded-card border border-line bg-slate">
             <table className="w-full text-sm">
               <thead>
@@ -230,10 +238,13 @@ export default async function ClubsPage({
               </tbody>
             </table>
           </div>
+          )}
+          {!isCup && (
           <p className="mt-2 text-xs text-mist">
             Classement recalculé depuis les résultats. Départage simplifié (points, différence,
             buts marqués) — les règles officielles varient selon les championnats.
           </p>
+          )}
         </section>
 
         {/* Résultats */}

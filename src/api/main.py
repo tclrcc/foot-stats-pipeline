@@ -153,6 +153,13 @@ def get_club_standings(
     season: int = Query(..., description="Saison (2025 = 2025-26)"),
 ):
     """Classement calculé depuis les résultats importés."""
+    if service.is_cup_competition(league):
+        raise HTTPException(
+            status_code=422,
+            detail="Classement non pertinent : compétition à phases mixtes "
+                   "(groupes + élimination directe). Utilise /clubs/results "
+                   "ou /clubs/topplayers pour cette compétition.",
+        )
     table = service.club_standings(league, season)
     if table is None:
         raise HTTPException(

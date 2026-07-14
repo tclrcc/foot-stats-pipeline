@@ -146,10 +146,16 @@ export default async function ClubPreviewPage({
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-mist">
             Au classement ({seasonLabel(d.season)})
           </h2>
+          {d.standings_note ? (
+            <div className="rounded-card border border-line bg-slate p-4 text-sm text-mist">
+              {d.standings_note}
+            </div>
+          ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             <StandingCard team={d.home_team} snap={d.standings.home} accent="pitch" />
             <StandingCard team={d.away_team} snap={d.standings.away} accent="clay" />
           </div>
+          )}
         </section>
 
         <section>

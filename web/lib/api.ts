@@ -191,7 +191,7 @@ export { API_BASE };
 
 // ─── Championnats club ───
 export interface ClubSeason { season: number; matches: number }
-export interface ClubLeague { league_id: number; league_name: string; seasons: ClubSeason[] }
+export interface ClubLeague { league_id: number; league_name: string; seasons: ClubSeason[]; type: "league" | "cup" }
 export interface StandingRow {
   rank: number; team: string; played: number; won: number; drawn: number;
   lost: number; gf: number; ga: number; gd: number; points: number; form: string[];
@@ -351,6 +351,7 @@ export interface ClubDossier {
   prediction: Prediction | null;
   physionomie: { total_xg: number; profile: string } | null;
   standings: { home: ClubStandingSnap | null; away: ClubStandingSnap | null };
+  standings_note: string | null;
   form: { home: ClubFormEntry[]; away: ClubFormEntry[] };
   h2h: { date: string; season: number; home_team: string; away_team: string; home_score: number; away_score: number }[];
   h2h_balance: { home_wins: number; draws: number; away_wins: number };

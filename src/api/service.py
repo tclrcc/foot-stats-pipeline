@@ -17,6 +17,10 @@ MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 sys.path.insert(0, MODELS_DIR)
 import dixon_coles as dc
 
+SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, SRC_DIR)
+from sync_api_football import is_cup_competition, league_display_name
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(PROJECT_ROOT, "data/db/foot_stats.db")
 
@@ -313,7 +317,8 @@ def club_leagues():
     conn.close()
     out = {}
     for lid, lname, season, n in rows:
-        e = out.setdefault(lid, {"league_id": lid, "league_name": lname, "seasons": []})
+        e = out.setdefault(lid, {"league_id": lid, "league_name": lname, "seasons": [],
+                                 "type": "cup" if is_cup_competition(lid) else "league"})
         e["seasons"].append({"season": season, "matches": n})
     return list(out.values())
 
@@ -658,8 +663,17 @@ def club_dossier(league_id, home, away):
         else:
             balance["away_wins"] += 1
 
-    # ── Positions au classement (dernière saison) ──
-    table = club_standings(league_id, latest) or []
+    # ── Positions au classement (dernière saison) — non pertinent en cup ──
+    is_cup = is_cup_competition(league_id)
+    standings_note = None
+    if is_cup:
+        table = []
+        standings_note = ("Classement non calculé : compétition à phases mixtes "
+                          "(groupes + élimination directe) — un tableau de points "
+                          "n'a pas de sens pour ce format.")
+    else:
+        table = club_standings(league_id, latest) or []
+
     def snap(team):
         for r in table:
             if r["team"] == team:
@@ -724,6 +738,7 @@ def club_dossier(league_id, home, away):
         "prediction": pred,
         "physionomie": physio,
         "standings": {"home": snap(home), "away": snap(away)},
+        "standings_note": standings_note,
         "form": {"home": form_home, "away": form_away},
         "h2h": h2h,
         "h2h_balance": balance,

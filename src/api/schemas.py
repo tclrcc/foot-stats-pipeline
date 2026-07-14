@@ -130,6 +130,7 @@ class ClubLeague(BaseModel):
     league_id: int
     league_name: str
     seasons: List[ClubSeason]
+    type: str = "league"
 
 
 class StandingRow(BaseModel):
