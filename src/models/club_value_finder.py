@@ -81,11 +81,16 @@ def _ensure_log_table(conn):
         detected_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
 
 
-def scan_league(league_id, min_ev=None, log=True):
+def scan_league(league_id, min_ev=None, log=True, selections=False):
     """
     Renvoie la liste des values détectées pour tous les matchs à venir
-    de la ligue ayant à la fois une prédiction (modèle entraîné) et des
-    cotes capturées. Persiste dans club_value_log si log=True.
+    de la ligue ayant à la fois une prédiction et des cotes capturées.
+    Persiste dans club_value_log si log=True.
+
+    selections=True : utilise le modèle sélections (service.predict,
+    terrain neutre) au lieu du modèle club par championnat — pour les
+    matchs internationaux (CDM), stockés sous league_id=1 dans
+    club_upcoming comme n'importe quelle autre "ligue".
     """
     if min_ev is not None:
         vf.EV_MIN = min_ev
@@ -103,7 +108,10 @@ def scan_league(league_id, min_ev=None, log=True):
         odds = latest_odds_for_fixture(fid)
         if not odds:
             continue
-        pred = service.club_predict(league_id, home, away)
+        if selections:
+            pred = service.predict(home, away, neutral=True)
+        else:
+            pred = service.club_predict(league_id, home, away)
         if pred is None:
             continue
         model_probs = _adapt_club_markets(pred)
@@ -140,13 +148,15 @@ def main():
                     help="Seuil EV en fraction (0.05 = 5%%), défaut = celui de value_finder.py")
     ps.add_argument("--bankroll", type=float, default=None)
     ps.add_argument("--no-log", action="store_true")
+    ps.add_argument("--selections", action="store_true",
+                    help="Modèle sélections (terrain neutre) au lieu du modèle club — pour CDM/international")
     args = ap.parse_args()
 
     leagues = resolve_leagues(args.leagues)
     all_values = []
     for lg in leagues:
         print(f"\n════ {league_display_name(lg)} ════")
-        vals = scan_league(lg, min_ev=args.min_ev, log=not args.no_log)
+        vals = scan_league(lg, min_ev=args.min_ev, log=not args.no_log, selections=args.selections)
         if not vals:
             print("   Aucune cote capturée, aucun modèle entraîné, ou aucune value au-dessus du seuil.")
         all_values += vals

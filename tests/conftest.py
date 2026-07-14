@@ -28,6 +28,11 @@ def temp_db(tmp_path, monkeypatch):
     import sync_api_football as sync_mod
     monkeypatch.setattr(sync_mod, "DB_PATH", db_path)
     try:
+        import dixon_coles as dc_mod
+        monkeypatch.setattr(dc_mod, "DB_PATH", db_path)
+    except ImportError:
+        pass
+    try:
         import service as service_mod
         monkeypatch.setattr(service_mod, "DB_PATH", db_path)
     except ImportError:
