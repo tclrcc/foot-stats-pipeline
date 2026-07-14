@@ -702,9 +702,12 @@ def club_dossier(league_id, home, away):
     fixture_id, kickoff = None, None
     lineups, absences = None, None
     conn3 = _connect()
-    up = conn3.execute("""SELECT fixture_id, date FROM club_upcoming
-        WHERE league_id=? AND home_team=? AND away_team=?
-        ORDER BY date LIMIT 1""", (league_id, home, away)).fetchone()
+    try:
+        up = conn3.execute("""SELECT fixture_id, date FROM club_upcoming
+            WHERE league_id=? AND home_team=? AND away_team=?
+            ORDER BY date LIMIT 1""", (league_id, home, away)).fetchone()
+    except Exception:
+        up = None
     if up:
         fixture_id, kickoff = up
         try:
