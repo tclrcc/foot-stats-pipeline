@@ -38,7 +38,7 @@ def main():
     build_player_impact_table()
 
     print("\n🎉 Pipeline rafraîchi de bout en bout.")
-    print("   → Lance maintenant : python src/predict_upcoming.py\n")
+    print("   → Consulte l'app web, ou l'API : uvicorn src.api.main:app\n")
 
 
 if __name__ == "__main__":

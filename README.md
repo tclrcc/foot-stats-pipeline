@@ -94,6 +94,8 @@ pandas.
 # Backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+# Pour figer les versions exactes de ton environnement (reproductibilité totale) :
+#   pip freeze > requirements.txt
 cp .env.example .env   # renseigner API_FOOTBALL_KEY
 python src/refresh_all.py
 uvicorn src.api.main:app --reload
