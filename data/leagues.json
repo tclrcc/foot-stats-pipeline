@@ -9,5 +9,7 @@
   "superlig": { "id": 203, "name": "Süper Lig (Turquie D1)", "type": "league" },
 
   "europa": { "id": 3, "name": "UEFA Europa League", "type": "cup" },
-  "conference": { "id": 848, "name": "UEFA Europa Conference League", "type": "cup" }
+  "conference": { "id": 848, "name": "UEFA Europa Conference League", "type": "cup" },
+  "chinasl": { "id": 169, "name": "Chinese Super League", "type": "league" },
+  "allsvenskan": { "id": 113, "name": "Allsvenskan", "type": "league" }
 }
