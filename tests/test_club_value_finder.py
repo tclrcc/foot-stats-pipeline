@@ -118,3 +118,40 @@ def test_scan_league_with_selections_flag_uses_selections_model(temp_db):
     values = cvf.scan_league(1, min_ev=0.0, log=False, selections=True)
     assert len(values) > 0
     assert all(v["match"] == "England vs Argentina" for v in values)
+
+
+def test_parse_odds_response_excludes_half_variants():
+    """
+    Regression directe du bug reel : 'Both Teams to Score 1st Half' (cotes
+    ~6-10, marche rare) etait confondu avec le BTTS plein match classique
+    (cotes ~1.5-2.3), produisant des EV a +400% qui n'etaient pas de
+    vraies values mais un marche mal identifie.
+    """
+    resp = [{"bookmakers": [{"name": "Bet365", "bets": [
+        {"name": "Both Teams to Score", "values": [
+            {"value": "Yes", "odd": "1.85"}, {"value": "No", "odd": "1.95"}]},
+        {"name": "Both Teams to Score 1st Half", "values": [
+            {"value": "Yes", "odd": "9.90"}, {"value": "No", "odd": "1.05"}]},
+        {"name": "Goals Over/Under", "values": [
+            {"value": "Over 2.5", "odd": "1.90"}]},
+        {"name": "Goals Over/Under 1st Half", "values": [
+            {"value": "Over 0.5", "odd": "1.40"}]},
+    ]}]}]
+    parsed = s._parse_odds_response(resp, "A", "B")
+    assert parsed["BTTS"]["Yes"] == 1.85
+    assert len(parsed["Totaux"]) == 1  # la variante 1ère mi-temps n'a pas pollué
+
+
+def test_value_finder_sanity_ceiling_rejects_absurd_ev():
+    """
+    Garde-fou de defense en profondeur : meme si une cote aberrante
+    passe malgre le filtre en amont, aucune EV extreme ne doit jamais
+    etre presentee comme une vraie value.
+    """
+    import value_finder as vf
+    model_probs = {"home": 0.514, "draw": 0.25, "away": 0.236,
+                   "over_1_5": 0.8, "over_2_5": 0.5, "under_2_5": 0.5,
+                   "btts_yes": 0.514, "btts_no": 0.486}
+    odds = {"BTTS": {"Yes": 9.90, "No": 2.25}}
+    vals = vf.find_values_for_match("A vs B", model_probs, odds)
+    assert not any(v["market"] == "BTTS" and v["selection"] == "Yes" for v in vals)

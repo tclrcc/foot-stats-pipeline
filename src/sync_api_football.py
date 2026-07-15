@@ -1105,10 +1105,21 @@ def _parse_odds_response(resp, home, away):
     """
     VALUE_MAP = {"home": "1", "draw": "N", "away": "2"}
     best = {"1N2": {}, "Totaux": {}, "BTTS": {}}
+    # Exclut les variantes par mi-temps / période — un nom de pari peut
+    # contenir "both teams" ou "over/under" tout en désignant un marché
+    # totalement différent en probabilité (ex. "Both Teams to Score 1st
+    # Half" se joue à des cotes ~3-4 quand le BTTS plein match se joue
+    # ~1.6-2.3 ; les comparer à la même proba modèle produit une EV
+    # délirante, symptôme d'un marché mal identifié plutôt que d'une
+    # vraie value).
+    EXCLUDED = ("1st half", "2nd half", "first half", "second half",
+               "half time", "halftime", "ht/ft", "half")
     for entry in resp or []:
         for bm in entry.get("bookmakers", []) or []:
             for bet in bm.get("bets", []) or []:
                 name = (bet.get("name") or "").lower()
+                if any(x in name for x in EXCLUDED):
+                    continue
                 if "match winner" in name or name == "1x2":
                     market = "1N2"
                 elif "over/under" in name and "goals" in name:

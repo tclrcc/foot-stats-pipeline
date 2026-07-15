@@ -22,6 +22,11 @@ calculées sont trompeuses.
 EV_MIN         = 0.05   # 5% d'espérance minimum
 MIN_ODDS       = 1.50   # cote plancher
 P_MIN          = 0.10   # proba modèle plancher
+EV_SANITY_MAX  = 1.00   # 100% : au-delà, quasi certainement un artefact
+                         # (marché mal identifié, cote aberrante...) plutôt
+                         # qu'une vraie value — le football est un marché
+                         # liquide, une vraie edge dépasse rarement 10-20%.
+                         # Exclu de la détection, jamais silencieusement affiché.
 KELLY_FRACTION = 0.25   # Kelly fractionné (1/4) pour limiter la variance
 KELLY_CAP      = 0.05   # mise max 5% de la bankroll par pari (garde-fou)
 
@@ -111,6 +116,11 @@ def find_values_for_match(match_name, model_probs, match_odds):
 
             # Critères de sélection
             if ev < EV_MIN or odds < MIN_ODDS or p_model < P_MIN:
+                continue
+            if ev > EV_SANITY_MAX:
+                print(f"   ⚠️  EV aberrante ignorée : {match_name} · {market_name} · {sel_key} "
+                      f"({ev*100:+.0f}%, cote {odds:.2f}) — probablement un marché mal identifié, "
+                      f"pas une vraie value. Vérifie le nom exact du pari dans l'API si ça persiste.")
                 continue
 
             k_full = kelly_fraction(p_model, odds)
