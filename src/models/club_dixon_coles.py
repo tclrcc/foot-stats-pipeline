@@ -39,6 +39,16 @@ DB_PATH = os.path.join(PROJECT_ROOT, "data/db/foot_stats.db")
 MIN_MATCHES_PER_TEAM = 10
 REFIT_DAYS = 30
 
+# Paires division haute <-> division basse dont les DEUX niveaux sont
+# enregistrés dans le registre (data/leagues.json ou big5) : un promu
+# fraîchement monté n'a souvent que quelques matchs dans sa nouvelle
+# division, insuffisant pour l'estimer (MIN_MATCHES_PER_TEAM). Plutôt
+# que de l'exclure entièrement du modèle jusqu'à accumuler 10 matchs,
+# on emprunte ses paramètres à l'autre division tant qu'ils manquent
+# — c'est une ESTIMATION explicitement marquée (colonne source_league_id
+# dans club_dc_params), jamais confondue avec un ajustement complet.
+TIER_LINKS = {61: 62, 62: 61, 39: 40, 40: 39, 140: 141, 141: 140}
+
 
 def _connect():
     return sqlite3.connect(DB_PATH)
@@ -80,11 +90,25 @@ def train_league(league_id, as_of=None, save=True, verbose=True):
         print(f"❌ Aucun match pour la ligue {league_id} — lance d'abord "
               f"'python src/sync_api_football.py results'.")
         return None
+
+    # Équipes qui seront exclues par filter_teams (< MIN_MATCHES_PER_TEAM
+    # dans CETTE ligue) — calculé avant filtrage pour tenter un emprunt
+    # inter-division sur celles-ci.
+    appearances = pd.concat([df["home_team"], df["away_team"]])
+    counts = appearances.value_counts()
+    under_threshold = set(counts[counts < MIN_MATCHES_PER_TEAM].index)
+
     df = dc.filter_teams(df, min_matches=MIN_MATCHES_PER_TEAM)
     if verbose:
         print(f"📚 Corpus ligue {league_id} : {len(df)} matchs, "
               f"{len(set(df['home_team']) | set(df['away_team']))} équipes")
     team_params, gamma, rho, nll = dc.fit(df, as_of=as_of, verbose=verbose)
+    team_params["source_league_id"] = None  # ajustées dans CETTE ligue
+
+    borrowed = _borrow_cross_tier(league_id, under_threshold, team_params, verbose=verbose)
+    if not borrowed.empty:
+        team_params = pd.concat([team_params, borrowed], ignore_index=True)
+
     if save:
         _save_league(league_id, team_params, gamma, rho, nll, len(df))
         if verbose:
@@ -94,18 +118,77 @@ def train_league(league_id, as_of=None, save=True, verbose=True):
     return team_params, gamma, rho
 
 
+def _borrow_cross_tier(league_id, under_threshold, target_params, verbose=True):
+    """
+    Pour les équipes sous le seuil dans league_id, emprunte leurs
+    paramètres depuis la division liée (TIER_LINKS) si elle a déjà été
+    entraînée. Les valeurs sont RESCALÉES sur le niveau moyen de la
+    ligue cible (pas une copie brute) : une division inférieure a un
+    niveau moyen différent, copier tel quel sur-estimerait ou
+    sous-estimerait systématiquement le promu selon le sens de
+    l'emprunt. On préserve son rang relatif dans sa division d'origine,
+    projeté sur l'échelle de la division cible — pas un facteur de
+    performance des promus inventé, une simple mise à niveau d'échelle.
+    Renvoie un DataFrame vide si aucune ligue liée ou aucune correspondance.
+    """
+    linked = TIER_LINKS.get(league_id)
+    empty = pd.DataFrame(columns=["team", "alpha", "beta", "source_league_id"])
+    if not under_threshold or linked is None or target_params.empty:
+        return empty
+
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT team, alpha, beta FROM club_dc_params WHERE league_id=?",
+            (linked,)).fetchall()
+    except sqlite3.OperationalError:
+        conn.close()
+        return empty
+    conn.close()
+    if not rows:
+        return empty
+
+    source_avg_alpha = float(np.mean([r[1] for r in rows]))
+    source_avg_beta = float(np.mean([r[2] for r in rows]))
+    target_avg_alpha = float(target_params["alpha"].mean())
+    target_avg_beta = float(target_params["beta"].mean())
+    if source_avg_alpha <= 0 or source_avg_beta <= 0:
+        return empty
+    scale_alpha = target_avg_alpha / source_avg_alpha
+    scale_beta = target_avg_beta / source_avg_beta
+
+    by_team = {t: (a, b) for t, a, b in rows}
+    matched = []
+    for team in sorted(under_threshold):
+        if team in by_team:
+            a, b = by_team[team]
+            matched.append({"team": team, "alpha": a * scale_alpha, "beta": b * scale_beta,
+                            "source_league_id": linked})
+    if matched and verbose:
+        names = ", ".join(m["team"] for m in matched)
+        print(f"   🔗 {len(matched)} équipe(s) sous le seuil complétée(s) par estimation "
+              f"depuis {league_display_name(linked)} (rescalée) : {names}")
+    return pd.DataFrame(matched)
+
+
 def _save_league(league_id, team_params, gamma, rho, nll, n_matches):
     conn = _connect()
     conn.execute("""CREATE TABLE IF NOT EXISTS club_dc_params (
         league_id INTEGER, team TEXT, alpha REAL, beta REAL,
         PRIMARY KEY (league_id, team))""")
+    try:
+        conn.execute("ALTER TABLE club_dc_params ADD COLUMN source_league_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
     conn.execute("""CREATE TABLE IF NOT EXISTS club_dc_global (
         league_id INTEGER PRIMARY KEY, gamma REAL, rho REAL, nll REAL,
         n_matches INTEGER, trained_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
     conn.execute("DELETE FROM club_dc_params WHERE league_id=?", (league_id,))
     for r in team_params.itertuples():
-        conn.execute("INSERT INTO club_dc_params VALUES (?,?,?,?)",
-                     (league_id, r.team, float(r.alpha), float(r.beta)))
+        src = getattr(r, "source_league_id", None)
+        src = None if pd.isna(src) else int(src)
+        conn.execute("INSERT INTO club_dc_params VALUES (?,?,?,?,?)",
+                     (league_id, r.team, float(r.alpha), float(r.beta), src))
     conn.execute("""INSERT OR REPLACE INTO club_dc_global
         (league_id, gamma, rho, nll, n_matches, trained_at)
         VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)""",
@@ -124,9 +207,15 @@ def load_league_params(league_id):
         if not glob:
             conn.close()
             return None
-        tp = pd.read_sql_query(
-            "SELECT team, alpha, beta FROM club_dc_params WHERE league_id=?",
-            conn, params=(league_id,)).set_index("team")
+        try:
+            tp = pd.read_sql_query(
+                "SELECT team, alpha, beta, source_league_id FROM club_dc_params WHERE league_id=?",
+                conn, params=(league_id,)).set_index("team")
+        except Exception:
+            tp = pd.read_sql_query(
+                "SELECT team, alpha, beta FROM club_dc_params WHERE league_id=?",
+                conn, params=(league_id,)).set_index("team")
+            tp["source_league_id"] = None
     except Exception:
         conn.close()
         return None

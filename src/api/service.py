@@ -9,6 +9,7 @@ dépendance au CLI predict_upcoming — l'API est autonome et agnostique au spor
 import os
 import json
 import sqlite3
+import pandas as pd
 from functools import lru_cache
 
 # Import du moteur existant
@@ -458,6 +459,14 @@ def club_predict(league_id, home, away, lam_mult=1.0, mu_mult=1.0):
     lam *= lam_mult
     mu *= mu_mult
 
+    def _is_estimated(team):
+        try:
+            v = team_params.loc[team, "source_league_id"]
+            return v is not None and not pd.isna(v)
+        except Exception:
+            return False
+    estimated = _is_estimated(home) or _is_estimated(away)
+
     probs = dc.market_probabilities(lam, mu, rho)
     mat = dc.score_matrix(lam, mu, rho, max_goals=8)
     scores = [(f"{i}-{j}", float(mat[i, j]))
@@ -483,7 +492,7 @@ def club_predict(league_id, home, away, lam_mult=1.0, mu_mult=1.0):
         "top_scorelines": [
             {"score": s, "probability": round(p * 100, 1)} for s, p in top
         ],
-        "method": "dixon_coles_club",
+        "method": "dixon_coles_club" + ("+estimation" if estimated else ""),
     }
 
 
