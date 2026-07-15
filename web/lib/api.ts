@@ -355,6 +355,7 @@ export interface ClubDossier {
   form: { home: ClubFormEntry[]; away: ClubFormEntry[] };
   h2h: { date: string; season: number; home_team: string; away_team: string; home_score: number; away_score: number }[];
   h2h_balance: { home_wins: number; draws: number; away_wins: number };
+  storylines: string[];
   lineups: {
     home: { team: string; formation: string | null; xi: { id: number | null; name: string; pos: string | null }[] };
     away: { team: string; formation: string | null; xi: { id: number | null; name: string; pos: string | null }[] };

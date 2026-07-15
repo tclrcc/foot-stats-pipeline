@@ -59,6 +59,23 @@ export default async function ClubPreviewPage({
         )}
       </header>
 
+      {/* À la une */}
+      {d.storylines.length > 0 && (
+        <div className="mb-8 rounded-card border border-line bg-slate p-5">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-mist">
+            À la une
+          </h2>
+          <ul className="space-y-2">
+            {d.storylines.map((line, i) => (
+              <li key={i} className="flex gap-2.5 text-sm text-chalk">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-signal" />
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Prédiction complète */}
       {d.prediction ? (
         <PredictionResult pred={d.prediction} />

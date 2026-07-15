@@ -597,6 +597,94 @@ def club_upcoming(league_id=None, limit=30):
     return out
 
 
+def _club_storylines(home, away, pred, standings, form, h2h, h2h_balance):
+    """
+    Synthèse narrative du dossier club — même esprit que generate_storylines
+    côté sélections (analysis.py), reconstruite depuis les données déjà
+    calculées par club_dossier (aucune source supplémentaire). Pas de
+    'hommes clés' ici : aucune table de profondeur d'effectif club n'existe
+    pour calculer une dépendance par buteur fiable (contrairement aux
+    sélections) — volontairement absent plutôt qu'inventé.
+    """
+    s = []
+
+    # Écart au classement
+    snap_h, snap_a = standings.get("home"), standings.get("away")
+    if snap_h and snap_a:
+        gap = abs(snap_h["rank"] - snap_a["rank"])
+        if gap >= 8:
+            s.append(f"Gros écart au classement : {home} (#{snap_h['rank']}) "
+                     f"reçoit {away} (#{snap_a['rank']}).")
+        elif gap <= 2:
+            s.append("Deux équipes proches au classement : match d'écurie serré sur le papier.")
+
+    # Prédiction du modèle
+    if pred:
+        m = pred["markets"]
+        top = max(("home", m["home_win"]), ("draw", m["draw"]), ("away", m["away_win"]), key=lambda x: x[1])
+        label = {"home": home, "draw": "le nul", "away": away}[top[0]]
+        s.append(f"Le modèle penche pour {label} ({top[1]:.0f}%). "
+                 f"Score le plus probable : {pred['top_scorelines'][0]['score']}.")
+        total_xg = pred["xg_home"] + pred["xg_away"]
+        if total_xg > 3.1:
+            s.append(f"Rencontre attendue ouverte : {total_xg:.1f} buts espérés au total.")
+        elif total_xg < 2.2:
+            s.append(f"Match attendu fermé : seulement {total_xg:.1f} buts espérés au total.")
+
+    # Face-à-face
+    if h2h:
+        lm = h2h[0]
+        s.append(f"Dernière confrontation : {lm['home_team']} {lm['home_score']}-{lm['away_score']} {lm['away_team']} "
+                 f"({str(lm['date'])[:4]}).")
+        played = len(h2h)
+        if played >= 4:
+            if h2h_balance["home_wins"] >= h2h_balance["away_wins"] * 2 and h2h_balance["home_wins"] >= 3:
+                s.append(f"Ascendant psychologique pour {home} : {h2h_balance['home_wins']} victoires "
+                         f"contre {h2h_balance['away_wins']} sur les {played} dernières confrontations.")
+            elif h2h_balance["away_wins"] >= h2h_balance["home_wins"] * 2 and h2h_balance["away_wins"] >= 3:
+                s.append(f"Ascendant psychologique pour {away} : {h2h_balance['away_wins']} victoires "
+                         f"contre {h2h_balance['home_wins']} sur les {played} dernières confrontations.")
+        best_margin = max(h2h, key=lambda m: abs(m["home_score"] - m["away_score"]))
+        margin = abs(best_margin["home_score"] - best_margin["away_score"])
+        if margin >= 4:
+            s.append(f"Écart marqué lors d'une confrontation récente : {best_margin['home_team']} "
+                     f"{best_margin['home_score']}-{best_margin['away_score']} {best_margin['away_team']} "
+                     f"({str(best_margin['date'])[:4]}).")
+
+    # Formes (séries en cours, calculées depuis les résultats les plus récents)
+    for team, entries in ((home, form.get("home", [])), (away, form.get("away", []))):
+        if not entries:
+            continue
+        results = [e["result"] for e in entries]  # plus récent en premier
+        unbeaten = 0
+        for r in results:
+            if r in ("V", "N"):
+                unbeaten += 1
+            else:
+                break
+        winless = 0
+        for r in results:
+            if r != "V":
+                winless += 1
+            else:
+                break
+        scoring = 0
+        for e in entries:
+            gf = e["score"].split("-")[0] if e["venue"] == "home" else e["score"].split("-")[1]
+            if int(gf) > 0:
+                scoring += 1
+            else:
+                break
+        if unbeaten >= 4:
+            s.append(f"{team} reste sur {unbeaten} matchs sans défaite.")
+        elif winless >= 3:
+            s.append(f"{team} traverse une période délicate : {winless} matchs sans victoire.")
+        if scoring >= 5:
+            s.append(f"{team} a marqué lors de chacun de ses {scoring} derniers matchs.")
+
+    return s
+
+
 def club_dossier(league_id, home, away):
     """
     Dossier d'avant-match club : prédiction, physionomie, positions au
@@ -739,6 +827,7 @@ def club_dossier(league_id, home, away):
             absences = None
     conn3.close()
 
+    standings_out = {"home": snap(home), "away": snap(away)}
     return {
         "league_id": league_id,
         "league_name": lname[0] if lname else str(league_id),
@@ -749,11 +838,14 @@ def club_dossier(league_id, home, away):
         "kickoff": kickoff,
         "prediction": pred,
         "physionomie": physio,
-        "standings": {"home": snap(home), "away": snap(away)},
+        "standings": standings_out,
         "standings_note": standings_note,
         "form": {"home": form_home, "away": form_away},
         "h2h": h2h,
         "h2h_balance": balance,
+        "storylines": _club_storylines(
+            home, away, pred, standings_out,
+            {"home": form_home, "away": form_away}, h2h, balance),
         "lineups": lineups,
         "absences": absences,
     }
