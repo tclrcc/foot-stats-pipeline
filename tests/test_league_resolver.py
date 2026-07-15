@@ -48,6 +48,47 @@ def test_resolve_extra_registry_alias(tmp_path, monkeypatch):
     assert sorted(s.resolve_leagues("extra")) == [3, 62]
 
 
+def test_season_type_of_calendar_league(tmp_path, monkeypatch):
+    registry = tmp_path / "leagues.json"
+    registry.write_text(
+        '{"chinasl": {"id": 169, "name": "Chinese Super League", "type": "league", '
+        '"season_type": "calendar"}}', encoding="utf-8")
+    monkeypatch.setattr(s, "EXTRA_LEAGUES_PATH", str(registry))
+    assert s.season_type_of(169) == "calendar"
+
+
+def test_season_type_of_defaults_to_split(tmp_path, monkeypatch):
+    """Sans champ season_type (ancien registre) ou hors registre (big5) -> split."""
+    registry = tmp_path / "leagues.json"
+    registry.write_text('{"ligue2": {"id": 62, "name": "Ligue 2", "type": "league"}}',
+                        encoding="utf-8")
+    monkeypatch.setattr(s, "EXTRA_LEAGUES_PATH", str(registry))
+    assert s.season_type_of(62) == "split"    # champ absent
+    assert s.season_type_of(61) == "split"    # hors registre (big5)
+
+
+def test_calendar_league_season_correct_outside_july_window():
+    """
+    Regression directe du bug de production : hors juillet-decembre, une
+    ligue calendaire (Chine, Suede) doit rester sur l'annee courante,
+    pas retomber sur l'annee precedente comme le ferait la logique
+    'split' europeenne. Avant ce correctif, seul juillet donnait le bon
+    resultat par coincidence.
+    """
+    from datetime import date
+    d1, d2 = date(2027, 2, 1), date(2027, 2, 10)
+
+    def seasons_for_calendar(d1, d2):
+        return sorted({d1.year, d2.year})
+
+    def seasons_for_split(d1, d2):
+        season_of = lambda d: d.year if d.month >= 7 else d.year - 1
+        return sorted({season_of(d1), season_of(d2)})
+
+    assert seasons_for_calendar(d1, d2) == [2027]  # saison en cours, pas 2026
+    assert seasons_for_split(d1, d2) == [2026]      # comportement europeen inchange
+
+
 def test_resolve_extra_alias_without_id_does_not_crash(tmp_path, monkeypatch):
     """Alias connu mais id pas encore renseigné (null) : ignoré, pas d'exception."""
     registry = tmp_path / "leagues.json"

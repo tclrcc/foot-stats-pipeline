@@ -748,12 +748,17 @@ def cmd_upcoming(args):
     d_from = date.today()
     d_to = date.today() + timedelta(days=int(args.days))
 
-    # L'API exige 'season' avec league+from/to. Saison européenne déduite de
-    # la date (juil-déc → année en cours, jan-juin → année précédente) ;
-    # si la fenêtre chevauche deux saisons, on interroge les deux.
-    def season_of(d):
-        return d.year if d.month >= 7 else d.year - 1
-    seasons = sorted({season_of(d_from), season_of(d_to)})
+    # L'API exige 'season' avec league+from/to. Deux conventions selon le
+    # championnat (data/leagues.json, champ season_type) :
+    #  - 'split' (défaut, ex. Europe août-mai) : année en cours si on est
+    #    en juillet-décembre, sinon année précédente
+    #  - 'calendar' (ex. Chine, Suède mars-nov) : toujours l'année en cours
+    # Si la fenêtre chevauche deux saisons, les deux sont interrogées.
+    def seasons_for(league_id, d1, d2):
+        if season_type_of(league_id) == "calendar":
+            return sorted({d1.year, d2.year})
+        season_of = lambda d: d.year if d.month >= 7 else d.year - 1
+        return sorted({season_of(d1), season_of(d2)})
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
@@ -768,6 +773,7 @@ def cmd_upcoming(args):
     total = 0
     for lg in leagues:
         lg_name = league_display_name(lg)
+        seasons = seasons_for(lg, d_from, d_to)
         resp = []
         for season in seasons:
             resp += _get("/fixtures", {"league": lg, "season": season,
@@ -1121,6 +1127,18 @@ def _parse_odds_response(resp, home, away):
                     if price > 1.0:
                         best[market][sel] = max(best[market].get(sel, 0), price)
     return {k: v for k, v in best.items() if v}
+
+
+def season_type_of(league_id):
+    """
+    'split' (défaut, ex. août-mai : Europe) ou 'calendar' (ex. mars-nov :
+    Chine, Suède...) — lu depuis data/leagues.json. Non renseigné = 'split'
+    (comportement historique, big5/CDM compris).
+    """
+    for v in _load_extra_leagues().values():
+        if v.get("id") == league_id:
+            return v.get("season_type", "split")
+    return "split"
 
 
 def _best_match(model_name, lineups):
