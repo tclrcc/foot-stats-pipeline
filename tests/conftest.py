@@ -57,6 +57,11 @@ def temp_db(tmp_path, monkeypatch):
         monkeypatch.setattr(pt_mod, "DB_PATH", db_path)
     except ImportError:
         pass
+    try:
+        import health_check as hc_mod
+        monkeypatch.setattr(hc_mod, "DB_PATH", db_path)
+    except ImportError:
+        pass
 
     return db_path
 
