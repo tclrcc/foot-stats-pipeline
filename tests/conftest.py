@@ -35,6 +35,11 @@ def temp_db(tmp_path, monkeypatch):
     try:
         import service as service_mod
         monkeypatch.setattr(service_mod, "DB_PATH", db_path)
+        # Caches en mémoire (lru_cache + dict) qui survivent entre tests
+        # malgré DB_PATH redirigé — sans ça, un test antérieur peut
+        # silencieusement polluer celui-ci avec les params d'une autre base.
+        service_mod.clear_cache()
+        service_mod.clear_club_cache()
     except ImportError:
         pass
     try:
@@ -45,6 +50,11 @@ def temp_db(tmp_path, monkeypatch):
     try:
         import club_value_finder as cvf_mod
         monkeypatch.setattr(cvf_mod, "DB_PATH", db_path)
+    except ImportError:
+        pass
+    try:
+        import prediction_tracker as pt_mod
+        monkeypatch.setattr(pt_mod, "DB_PATH", db_path)
     except ImportError:
         pass
 
