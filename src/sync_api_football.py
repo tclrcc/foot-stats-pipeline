@@ -553,6 +553,7 @@ def cmd_results(args):
     1 requête par (ligue, saison) — big5 × 5 saisons = 25 requêtes.
     Réimport sans risque : INSERT OR REPLACE par fixture_id.
     """
+    from datetime import date
     # ── Parse des ligues ──
     leagues = resolve_leagues(args.leagues)
     if not leagues:
@@ -602,13 +603,22 @@ def cmd_results(args):
                 hs, as_ = g.get("home"), g.get("away")
                 if hs is None or as_ is None:
                     continue
+                match_date = str(m["fixture"]["date"])[:10]
+                if match_date > str(date.today()):
+                    # Un match "terminé" avec une date future est incohérent
+                    # (report/re-programmation mal reflétée côté API) — on
+                    # ne l'importe pas plutôt que de polluer club_matches,
+                    # la table sensée ne contenir QUE des matchs joués.
+                    print(f"   ⚠️  Ignoré (statut {st} mais date future {match_date}) : "
+                          f"{m['teams']['home']['name']} vs {m['teams']['away']['name']}")
+                    continue
                 conn.execute("""INSERT OR REPLACE INTO club_matches
                     (fixture_id, league_id, league_name, season, date, round,
                      home_team, away_team, home_score, away_score, status,
                      home_id, away_id)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     m["fixture"]["id"], lg, lg_name, season,
-                    str(m["fixture"]["date"])[:10],
+                    match_date,
                     (m.get("league", {}) or {}).get("round", ""),
                     m["teams"]["home"]["name"], m["teams"]["away"]["name"],
                     int(hs), int(as_), st,

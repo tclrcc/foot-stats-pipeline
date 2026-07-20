@@ -28,6 +28,19 @@ def test_close_standings_flagged_as_derby():
     assert any("proches au classement" in line for line in s)
 
 
+def test_moderate_standings_gap_no_longer_silent():
+    """
+    Regression : un ecart entre 3 et 7 places ne produisait AUCUNE
+    storyline (zone morte entre 'gros ecart' >=8 et 'proches' <=2) —
+    trouve sur le cas reel #12 vs #6 (ecart de 6).
+    """
+    standings = {"home": {"rank": 12, "points": 15, "played": 12, "gd": -3, "form": []},
+                "away": {"rank": 6, "points": 19, "played": 12, "gd": 3, "form": []}}
+    s = service._club_storylines("Kalmar FF", "Malmo FF", None, standings,
+                                 {"home": [], "away": []}, [], {})
+    assert any("Avantage au classement pour Malmo FF" in line for line in s)
+
+
 def test_model_favorite_and_scoreline_reported():
     pred = {"markets": {"home_win": 21.3, "draw": 25.8, "away_win": 52.9},
             "top_scorelines": [{"score": "0-1"}], "xg_home": 0.98, "xg_away": 1.67}

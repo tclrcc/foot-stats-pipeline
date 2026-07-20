@@ -336,7 +336,7 @@ def club_standings(league_id, season):
         return None
     rows = conn.execute("""
         SELECT date, home_team, away_team, home_score, away_score
-        FROM club_matches WHERE league_id=? AND season=?
+        FROM club_matches WHERE league_id=? AND season=? AND date <= date('now')
         ORDER BY date ASC
     """, (league_id, season)).fetchall()
     conn.close()
@@ -617,6 +617,10 @@ def _club_storylines(home, away, pred, standings, form, h2h, h2h_balance):
                      f"reçoit {away} (#{snap_a['rank']}).")
         elif gap <= 2:
             s.append("Deux équipes proches au classement : match d'écurie serré sur le papier.")
+        else:
+            better = home if snap_h["rank"] < snap_a["rank"] else away
+            s.append(f"Avantage au classement pour {better} (#{min(snap_h['rank'], snap_a['rank'])} "
+                     f"contre #{max(snap_h['rank'], snap_a['rank'])}).")
 
     # Prédiction du modèle
     if pred:
@@ -718,7 +722,7 @@ def club_dossier(league_id, home, away):
         rows = conn.execute("""
             SELECT date, home_team, away_team, home_score, away_score
             FROM club_matches
-            WHERE league_id=? AND (home_team=? OR away_team=?)
+            WHERE league_id=? AND date <= date('now') AND (home_team=? OR away_team=?)
             ORDER BY date DESC LIMIT ?""",
             (league_id, team, team, n)).fetchall()
         out = []
@@ -735,7 +739,8 @@ def club_dossier(league_id, home, away):
     h2h_rows = conn.execute("""
         SELECT date, season, home_team, away_team, home_score, away_score
         FROM club_matches
-        WHERE league_id=? AND ((home_team=? AND away_team=?) OR (home_team=? AND away_team=?))
+        WHERE league_id=? AND date <= date('now')
+              AND ((home_team=? AND away_team=?) OR (home_team=? AND away_team=?))
         ORDER BY date DESC LIMIT 6""",
         (league_id, home, away, away, home)).fetchall()
 
