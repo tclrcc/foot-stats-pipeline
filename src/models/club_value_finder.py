@@ -102,10 +102,11 @@ def scan_league(league_id, min_ev=None, log=True, selections=False, within_hours
     try:
         if within_hours is not None:
             from datetime import datetime, timedelta
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
             horizon = (datetime.now() + timedelta(hours=within_hours)).strftime("%Y-%m-%d %H:%M")
             rows = conn.execute("""SELECT fixture_id, home_team, away_team
-                FROM club_upcoming WHERE league_id=? AND date <= ? ORDER BY date""",
-                (league_id, horizon)).fetchall()
+                FROM club_upcoming WHERE league_id=? AND date >= ? AND date <= ? ORDER BY date""",
+                (league_id, now_str, horizon)).fetchall()
         else:
             rows = conn.execute("""SELECT fixture_id, home_team, away_team
                 FROM club_upcoming WHERE league_id=? ORDER BY date""", (league_id,)).fetchall()

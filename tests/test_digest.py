@@ -105,3 +105,55 @@ def test_digest_never_sends_when_no_matches(temp_db, monkeypatch, capsys):
         cvf.cmd_digest(args)
         mock_smtp.assert_not_called()
     assert "non envoyé" in capsys.readouterr().out
+
+
+def test_build_digest_excludes_past_matches_still_in_club_upcoming(temp_db):
+    """
+    Regression directe du bug reel signale (meme digest, memes matchs
+    jour apres jour) : le filtre within_hours ne bornait que le futur
+    (date <= horizon), jamais le passe. Un match reste dans
+    club_upcoming tant que 'upcoming' n'a pas ete relance pour cette
+    ligue -> sans borne basse, il ressortait indefiniment.
+    """
+    from datetime import datetime, timedelta
+    conn = sqlite3.connect(temp_db)
+    conn.execute("""CREATE TABLE club_upcoming (fixture_id INTEGER PRIMARY KEY, league_id INTEGER,
+        league_name TEXT, season INTEGER, date TEXT, round TEXT, home_team TEXT, away_team TEXT,
+        home_id INTEGER, away_id INTEGER)""")
+    old = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
+    soon = (datetime.now() + timedelta(hours=10)).strftime("%Y-%m-%d %H:%M")
+    conn.execute("INSERT INTO club_upcoming VALUES (1,1,'World Cup',2026,?,'SF','England','Argentina',10,25)", (old,))
+    conn.execute("INSERT INTO club_upcoming VALUES (2,169,'CSL',2026,?,'J1','A','B',1,2)", (soon,))
+    conn.execute("CREATE TABLE club_dc_params (league_id INTEGER, team TEXT, alpha REAL, beta REAL,"
+                 " PRIMARY KEY(league_id,team))")
+    conn.execute("CREATE TABLE club_dc_global (league_id INTEGER PRIMARY KEY, gamma REAL, rho REAL,"
+                 " nll REAL, n_matches INTEGER, trained_at TEXT)")
+    conn.execute("INSERT INTO club_dc_params VALUES (169,'A',1.5,0.4)")
+    conn.execute("INSERT INTO club_dc_params VALUES (169,'B',1.2,0.5)")
+    conn.execute("INSERT INTO club_dc_global VALUES (169,1.3,-0.1,50,700,'2026-07-15')")
+    conn.execute("CREATE TABLE club_odds_snapshots (fixture_id INTEGER, market TEXT, selection TEXT,"
+                 " odds REAL, captured_at TEXT, PRIMARY KEY(fixture_id,market,selection,captured_at))")
+    conn.execute("INSERT INTO club_odds_snapshots VALUES (1,'1N2','1',2.5,CURRENT_TIMESTAMP)")
+    conn.execute("INSERT INTO club_odds_snapshots VALUES (2,'1N2','1',2.6,CURRENT_TIMESTAMP)")
+    conn.commit()
+    conn.close()
+
+    values, any_matches = cvf.build_digest(within_hours=48, min_ev=0.0)
+    assert not any("Argentina" in v["match"] for v in values), \
+        "un match vieux de 5 jours ne doit plus jamais apparaître dans le digest"
+
+
+def test_scan_league_within_hours_has_lower_bound(temp_db):
+    """Meme regression, testee directement sur scan_league (pas seulement le digest)."""
+    from datetime import datetime, timedelta
+    conn = sqlite3.connect(temp_db)
+    conn.execute("""CREATE TABLE club_upcoming (fixture_id INTEGER PRIMARY KEY, league_id INTEGER,
+        league_name TEXT, season INTEGER, date TEXT, round TEXT, home_team TEXT, away_team TEXT,
+        home_id INTEGER, away_id INTEGER)""")
+    old = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d %H:%M")
+    conn.execute("INSERT INTO club_upcoming VALUES (1,61,'Ligue 1',2025,?,'J1','Lyon','Marseille',80,81)", (old,))
+    conn.commit()
+    conn.close()
+
+    values = cvf.scan_league(61, min_ev=0.0, log=False, within_hours=48)
+    assert values == []
