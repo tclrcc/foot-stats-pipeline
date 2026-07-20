@@ -1,4 +1,0 @@
-{
-  "_doc": "Déclare les forfaits par équipe avant chaque journée. Les noms doivent matcher EXACTEMENT ceux de la table team_scorer_depth. Pour voir la liste : python src/models/squad_impact.py (mode démo).",
-  "_exemple": "{ 'France': ['Kylian Mbappé'], 'Norway': ['Erling Haaland'] }"
-}

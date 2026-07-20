@@ -217,3 +217,15 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 data/db/
+
+# Fichiers de données écrasés en continu par les commandes cron
+# (fixtures/upcoming/lineup/auto/injuries/map/ratings) — état runtime,
+# pas de la config à versionner. data/coaches.json et data/leagues.json
+# restent suivis (curés à la main). Présents en local, jamais commités.
+data/absences.json
+data/fixtures.json
+data/lineups.json
+data/odds.json
+data/team_mapping.json
+data/team_refs.json
+
