@@ -63,18 +63,26 @@ def _ensure_table():
         actual_home_score INTEGER, actual_away_score INTEGER,
         resolved_at TEXT,
         PRIMARY KEY (scope, fixture_id))""")
+    # kickoff_utc : équivalent UTC du coup d'envoi (cf. club_upcoming.date_utc)
+    # — permet à resolve() de comparer sans dépendre du fuseau du serveur.
+    # Lignes déjà journalisées avant ce correctif : NULL, repli automatique
+    # sur l'ancien comportement dans resolve() (voir plus bas).
+    try:
+        conn.execute("ALTER TABLE prediction_log ADD COLUMN kickoff_utc TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     return conn
 
 
-def _row_from_prediction(scope, fixture_id, league_id, home, away, kickoff, stage, pred):
+def _row_from_prediction(scope, fixture_id, league_id, home, away, kickoff, stage, pred, kickoff_utc=None):
     m = pred["markets"]
     top_score = pred["top_scorelines"][0]["score"] if pred.get("top_scorelines") else None
     return (scope, fixture_id, league_id, home, away, kickoff, stage, pred["method"],
             pred["xg_home"], pred["xg_away"],
             m["home_win"] / 100, m["draw"] / 100, m["away_win"] / 100,
             m["over_1_5"] / 100, m["over_2_5"] / 100, m["under_2_5"] / 100,
-            m["btts_yes"] / 100, m["btts_no"] / 100, top_score)
+            m["btts_yes"] / 100, m["btts_no"] / 100, top_score, kickoff_utc)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -84,18 +92,24 @@ def log_club(leagues_spec):
     conn = _ensure_table()
     n = 0
     for lg in resolve_leagues(leagues_spec):
-        rows = conn.execute("""SELECT fixture_id, home_team, away_team, date, round
-            FROM club_upcoming WHERE league_id=?""", (lg,)).fetchall()
-        for fid, home, away, kickoff, rnd in rows:
+        try:
+            rows = conn.execute("""SELECT fixture_id, home_team, away_team, date, round, date_utc
+                FROM club_upcoming WHERE league_id=?""", (lg,)).fetchall()
+        except sqlite3.OperationalError:
+            # club_upcoming pas encore migrée (date_utc absente) : repli
+            rows = [(fid, h, a, d, r, None) for fid, h, a, d, r in conn.execute(
+                """SELECT fixture_id, home_team, away_team, date, round
+                   FROM club_upcoming WHERE league_id=?""", (lg,)).fetchall()]
+        for fid, home, away, kickoff, rnd, kickoff_utc in rows:
             pred = service.club_predict(lg, home, away)
             if pred is None:
                 continue
             conn.execute("""INSERT OR REPLACE INTO prediction_log
                 (scope, fixture_id, league_id, home_team, away_team, kickoff, stage,
                  method, xg_home, xg_away, p_home, p_draw, p_away,
-                 p_over_15, p_over_25, p_under_25, p_btts_yes, p_btts_no, top_score)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                _row_from_prediction("club", fid, lg, home, away, kickoff, rnd, pred))
+                 p_over_15, p_over_25, p_under_25, p_btts_yes, p_btts_no, top_score, kickoff_utc)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                _row_from_prediction("club", fid, lg, home, away, kickoff, rnd, pred, kickoff_utc))
             n += 1
     conn.commit()
     conn.close()
@@ -118,8 +132,8 @@ def log_selections(league=1, season=2026):
         conn.execute("""INSERT OR REPLACE INTO prediction_log
             (scope, fixture_id, league_id, home_team, away_team, kickoff, stage,
              method, xg_home, xg_away, p_home, p_draw, p_away,
-             p_over_15, p_over_25, p_under_25, p_btts_yes, p_btts_no, top_score)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             p_over_15, p_over_25, p_under_25, p_btts_yes, p_btts_no, top_score, kickoff_utc)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             _row_from_prediction("selections", fid, league, home, away, kickoff, stage, pred))
         n += 1
     conn.commit()
@@ -131,18 +145,33 @@ def log_selections(league=1, season=2026):
 # RESOLVE
 # ─────────────────────────────────────────────────────────────────────────────
 def resolve():
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     conn = _ensure_table()
-    pending = conn.execute("""SELECT scope, fixture_id, league_id, home_team, away_team, kickoff
+    pending = conn.execute("""SELECT scope, fixture_id, league_id, home_team, away_team, kickoff, kickoff_utc
         FROM prediction_log WHERE resolved=0""").fetchall()
 
-    now = datetime.now()
+    now_naive = datetime.now()
+    now_utc = datetime.now(timezone.utc)
     n_resolved, n_pending = 0, 0
-    for scope, fid, lg, home, away, kickoff in pending:
-        try:
-            ko = datetime.strptime(kickoff[:16], "%Y-%m-%d %H:%M")
-        except Exception:
-            continue
+    for scope, fid, lg, home, away, kickoff, kickoff_utc in pending:
+        if kickoff_utc:
+            # Comparaison en UTC des deux côtés — ne dépend pas du fuseau
+            # du serveur qui exécute ce script (celui de l'API à la
+            # capture, cf. club_upcoming.date_utc).
+            try:
+                ko = datetime.strptime(kickoff_utc, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            now = now_utc
+        else:
+            # Repli pour les lignes journalisées avant ce correctif (ou
+            # issues du flux sélections, sans équivalent UTC) : ancien
+            # comportement, comparaison naïve dans le fuseau du serveur.
+            try:
+                ko = datetime.strptime(kickoff[:16], "%Y-%m-%d %H:%M")
+            except Exception:
+                continue
+            now = now_naive
         if now < ko + timedelta(minutes=RESOLVE_BUFFER_MIN):
             n_pending += 1
             continue

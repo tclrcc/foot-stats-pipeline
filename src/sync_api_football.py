@@ -780,6 +780,14 @@ def cmd_upcoming(args):
             home_id INTEGER, away_id INTEGER
         )
     """)
+    # date_utc : équivalent UTC du coup d'envoi, calculé à partir du
+    # décalage renvoyé par l'API (?timezone=...) — ne dépend jamais du
+    # fuseau du serveur qui exécute ce script. 'date' reste le libellé
+    # local (affichage), inchangé.
+    try:
+        conn.execute("ALTER TABLE club_upcoming ADD COLUMN date_utc TEXT")
+    except sqlite3.OperationalError:
+        pass
     total = 0
     for lg in leagues:
         lg_name = league_display_name(lg)
@@ -796,14 +804,23 @@ def cmd_upcoming(args):
             if st not in ("NS", "TBD"):
                 continue
             raw_date = m["fixture"]["date"]
+            date_utc = None
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                date_utc = _dt.fromisoformat(raw_date).astimezone(_tz.utc).strftime("%Y-%m-%d %H:%M")
+            except (ValueError, TypeError):
+                pass  # format inattendu : on garde 'date' pour l'affichage, resolve() aura un repli
             conn.execute("""INSERT OR REPLACE INTO club_upcoming
-                VALUES (?,?,?,?,?,?,?,?,?,?)""", (
+                (fixture_id, league_id, league_name, season, date, round,
+                 home_team, away_team, home_id, away_id, date_utc)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
                 m["fixture"]["id"], lg, lg_name,
                 (m.get("league", {}) or {}).get("season"),
                 raw_date[:16].replace("T", " "),
                 (m.get("league", {}) or {}).get("round", ""),
                 m["teams"]["home"]["name"], m["teams"]["away"]["name"],
                 m["teams"]["home"].get("id"), m["teams"]["away"].get("id"),
+                date_utc,
             ))
             n += 1
         conn.commit()
